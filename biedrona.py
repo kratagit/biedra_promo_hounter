@@ -1,4 +1,4 @@
-# --- POCZĄTEK PEŁNEGO SKRYPTU (WERSJA 16 - NAPRAWIONY LICZNIK) ---
+
 
 import requests
 from bs4 import BeautifulSoup
@@ -9,23 +9,50 @@ from io import BytesIO
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dotenv import load_dotenv # Nowa biblioteka do bezpiecznych haseł
 
 # --- KONFIGURACJA ---
-# Twoja ścieżka (nie zmieniam jej, jest poprawna)
+# Ładujemy zmienne z pliku .env (jeśli istnieje)
+load_dotenv() 
+
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 KEYWORD_TO_FIND = "papier" 
 SAVE_FOLDER = "gazetki"
-MAX_WORKERS = 5  # Liczba wątków
+MAX_WORKERS = 5
+
+# Pobieramy URL bezpiecznie ze zmiennych środowiskowych
+DISCORD_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 }
 
-# Blokada, żeby wątki nie pisały po sobie w konsoli
 print_lock = threading.Lock()
 
 # --------------------
+
+def send_discord_notification(message, image_path):
+    """Wysyła powiadomienie na Discorda (tekst + zdjęcie)."""
+    if not DISCORD_URL:
+        return # Jeśli nie ma linku w .env, nic nie rób
+
+    try:
+        data = {"content": message}
+        # Otwieramy plik w trybie binarnym do wysłania
+        with open(image_path, 'rb') as f:
+            files = {
+                "file": (os.path.basename(image_path), f)
+            }
+            response = requests.post(DISCORD_URL, data=data, files=files)
+            
+            # Sprawdzenie czy Discord przyjął wiadomość (kody 2xx są ok)
+            if response.status_code not in [200, 204]:
+                with print_lock:
+                    print(f"\n⚠️ Błąd wysyłania na Discorda: {response.status_code}")
+    except Exception as e:
+        with print_lock:
+            print(f"\n⚠️ Błąd funkcji Discorda: {e}")
 
 def sanitize_filename(name):
     name = name.replace(" ", "_")
@@ -67,7 +94,6 @@ def get_all_leaflet_uuids():
         return []
 
 def get_leaflet_pages(leaflet_id):
-    """Pobiera informacje o stronach danej gazetki."""
     try:
         api_url = f"https://leaflet-api.prod.biedronka.cloud/api/leaflets/{leaflet_id}?ctx=web"
         response = requests.get(api_url, headers=HEADERS, timeout=10)
@@ -89,21 +115,17 @@ def get_leaflet_pages(leaflet_id):
         return "Nieznana", []
 
 def process_page(task_data):
-    """Funkcja wykonywana przez wątki - analiza pojedynczej strony."""
     url = task_data['url']
     name = task_data['leaflet_name']
     page = task_data['page_number']
     
     try:
-        # Pobieranie
         resp = requests.get(url, headers=HEADERS, timeout=15)
         content = resp.content
         
-        # OCR
         img = Image.open(BytesIO(content))
         text = pytesseract.image_to_string(img, lang='pol')
         
-        # Sprawdzanie
         if KEYWORD_TO_FIND.lower() in text.lower():
             safe_name = sanitize_filename(name)
             filename = f"{safe_name}_strona_{page}.png"
@@ -112,28 +134,35 @@ def process_page(task_data):
             with open(path, 'wb') as f:
                 f.write(content)
             
-            return True, f"🔥 ZNALEZIONO PROMOCJĘ! Gazetka: '{name}' (Str. {page}) -> Zapisano plik."
+            # Zwracamy więcej danych, żeby Main mógł wysłać Discorda
+            msg = f"🔥 ZNALEZIONO PROMOCJĘ! Gazetka: '{name}' (Str. {page})"
+            return True, msg, path 
         
-        return False, None
+        return False, None, None
 
     except Exception:
-        return False, None
+        return False, None, None
 
 def main():
     os.makedirs(SAVE_FOLDER, exist_ok=True)
     print("="*60)
     print(f"   START SYSTEMU WYSZUKIWANIA PROMOCJI: '{KEYWORD_TO_FIND}'")
     print(f"   Folder zapisu: {os.path.abspath(SAVE_FOLDER)}")
+    
+    if DISCORD_URL:
+        print("   ✅ Wykryto konfigurację Discord Webhook.")
+    else:
+        print("   ℹ️ Brak konfiguracji Discord (plik .env). Powiadomienia wyłączone.")
+        
     print("="*60 + "\n")
 
     # 1. Zbieranie ID
     uuids = get_all_leaflet_uuids()
     if not uuids: return
 
-    # 2. Zbieranie stron (Przygotowanie)
+    # 2. Zbieranie stron
     all_tasks = []
     print(f"\n📂 KROK 2: Przygotowuję listę stron do sprawdzenia:")
-    
     for uuid in uuids:
         name, pages = get_leaflet_pages(uuid)
         if pages:
@@ -142,9 +171,7 @@ def main():
     
     total_pages = len(all_tasks)
     print(f"\n🚀 KROK 3: URUCHAMIAM TURBO SKANOWANIE ({MAX_WORKERS} wątki na raz)")
-    print(f"   Łącznie do przeanalizowania: {total_pages} obrazów. To chwilę potrwa...\n")
-
-    # 3. Wielowątkowe przetwarzanie
+    
     processed = 0
     found_count = 0
     
@@ -155,27 +182,29 @@ def main():
             task = future_to_task[future]
             processed += 1
             
-            # Dynamiczny pasek postępu (nadpisuje jedną linię)
             progress = (processed / total_pages) * 100
             status_msg = f"⏳ Postęp: {processed}/{total_pages} ({progress:.1f}%) | Analizuję: {task['leaflet_name'][:30]}... Str. {task['page_number']}"
             
-            # Wypisujemy status (używając \r żeby wracać na początek linii)
             with print_lock:
                 print(f"\r{status_msg:<100}", end="", flush=True)
             
-            # Odbiór wyniku
-            found, msg = future.result()
+            found, msg, saved_path = future.result()
+            
             if found:
-                found_count += 1  # <--- TUTAJ BYŁ BRAKUJĄCY ELEMENT! TERAZ JUŻ JEST OK.
+                found_count += 1
                 with print_lock:
-                    # Czyścimy linię statusu, wypisujemy sukces i w nowej linii wznawiamy status
                     print(f"\r{' '*100}\r", end="") 
                     print(msg)
+                    print(f"   -> Zapisano: {saved_path}")
+                
+                # Wysyłanie na Discorda
+                if DISCORD_URL:
+                    discord_msg = f"🛒 **Znaleziono '{KEYWORD_TO_FIND}'!**\nGazetka: {task['leaflet_name']}\nStrona: {task['page_number']}"
+                    send_discord_notification(discord_msg, saved_path)
 
     print(f"\n\n{'='*60}")
     print(f"   KONIEC SKANOWANIA")
     print(f"   Znaleziono {found_count} stron z frazą '{KEYWORD_TO_FIND}'.")
-    print(f"   Sprawdź folder '{SAVE_FOLDER}'.")
     print("="*60)
 
 if __name__ == "__main__":
