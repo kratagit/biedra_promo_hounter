@@ -1,4 +1,4 @@
-# --- POCZĄTEK PEŁNEGO SKRYPTU (WERSJA 21 - PRAWDZIWA GALERIA) ---
+# --- POCZĄTEK PEŁNEGO SKRYPTU (WERSJA 22 - DYNAMICZNE PAKOWANIE) ---
 
 import requests
 from bs4 import BeautifulSoup
@@ -17,11 +17,14 @@ load_dotenv()
 
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-KEYWORD_TO_FIND = "papier" 
+KEYWORD_TO_FIND = "dada" 
 SAVE_FOLDER = "gazetki"
 MAX_WORKERS = 5
 
 DISCORD_URL = os.getenv("DISCORD_WEBHOOK_URL")
+# Limit Discorda to 8MB. Ustawiamy 7.5MB jako bezpieczny margines.
+MAX_DISCORD_SIZE_BYTES = 7.5 * 1024 * 1024 
+MAX_DISCORD_FILES_COUNT = 50
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -32,97 +35,125 @@ print_lock = threading.Lock()
 # --------------------
 
 def compress_image_for_discord(image_path):
-    """Kompresuje obraz do JPG w pamięci RAM."""
+    """
+    Kompresuje obraz do JPG (jakość 75).
+    Zwraca obiekt BytesIO (plik w pamięci).
+    """
     try:
         img = Image.open(image_path)
         if img.mode in ("RGBA", "P"): 
             img = img.convert("RGB")
             
+        # Skalowanie w dół, jeśli obraz jest ogromny
         if img.width > 2000:
             ratio = 2000 / img.width
             new_height = int(img.height * ratio)
             img = img.resize((2000, new_height), Image.Resampling.LANCZOS)
 
         buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
+        # ZMNIEJSZONA JAKOŚĆ DO 75 (zgodnie z prośbą)
+        img.save(buffer, format="JPEG", quality=75) 
         buffer.seek(0)
         return buffer
     except Exception as e:
         print(f"Błąd kompresji: {e}")
         return None
 
-def send_discord_gallery(found_files):
+def send_single_batch(files_dict, embeds_list, batch_num):
+    """Funkcja pomocnicza do wysłania jednej przygotowanej paczki."""
+    try:
+        payload = {
+            "content": "",
+            "embeds": embeds_list
+        }
+        
+        response = requests.post(
+            DISCORD_URL, 
+            data={"payload_json": json.dumps(payload)}, 
+            files=files_dict
+        )
+        
+        if response.status_code not in [200, 204]:
+            print(f"\n⚠️ Błąd Discorda przy paczce {batch_num}: {response.status_code} - {response.text}")
+        else:
+            with print_lock:
+                print(f"\n📨 Wysłano paczkę nr {batch_num} (Zdjęć: {len(files_dict)})")
+                
+    except Exception as e:
+        print(f"\n⚠️ Błąd wysyłania paczki: {e}")
+
+def send_discord_gallery_dynamic(found_files):
     if not DISCORD_URL or not found_files:
         return
 
-    # Discord pozwala na max 10 embedów w jednej wiadomości.
-    # Ustawiamy 4, żeby zdjęcia były duże i czytelne w siatce (2x2).
-    chunk_size = 4
-    chunks = [found_files[i:i + chunk_size] for i in range(0, len(found_files), chunk_size)]
+    print(f"\n📦 Rozpoczynam inteligentne pakowanie {len(found_files)} zdjęć...")
 
-    print(f"\n📨 Wysyłam wyniki na Discorda w {len(chunks)} galeriach...")
+    # Zmienne tymczasowe dla aktualnej paczki
+    current_batch_files = {}
+    current_batch_embeds = []
+    current_batch_size = 0
+    current_batch_count = 0
+    
+    # Lista otwartych buforów do zamknięcia
+    open_buffers = []
+    
+    batch_counter = 1
 
-    for i, chunk in enumerate(chunks):
-        files = {}
-        embeds = []
-        buffers = []
+    for idx, file_path in enumerate(found_files):
+        # 1. Kompresujemy plik
+        compressed_img = compress_image_for_discord(file_path)
+        if not compressed_img:
+            continue
+            
+        # 2. Sprawdzamy jego rozmiar w bajtach
+        img_size = compressed_img.getbuffer().nbytes
         
-        try:
-            # Budujemy strukturę wiadomości
-            for idx, file_path in enumerate(chunk):
-                compressed_img = compress_image_for_discord(file_path)
-                
-                if compressed_img:
-                    buffers.append(compressed_img)
-                    
-                    # Nazwa pliku dla Discorda (musi być unikalna w obrębie wiadomości)
-                    filename = f"img_{i}_{idx}.jpg"
-                    
-                    # Dodajemy plik do załączników
-                    files[filename] = (filename, compressed_img, "image/jpeg")
-                    
-                    # Dodajemy Embed, który odwołuje się do tego załącznika
-                    # To jest klucz do wyświetlania jako galeria!
-                    embed = {
-                        "url": "https://www.biedronka.pl/pl/gazetki", # Link po kliknięciu w tytuł
-                        "image": {
-                            "url": f"attachment://{filename}"
-                        }
-                    }
-                    
-                    # Dodajemy tytuł tylko do pierwszego zdjęcia w paczce, żeby nie śmiecić
-                    if idx == 0:
-                        embed["title"] = f"Znaleziono: {KEYWORD_TO_FIND} (Paczka {i+1})"
-                        embed["color"] = 5763719 # Zielony
-                    
-                    embeds.append(embed)
-
-            if not files:
-                continue
-
-            # Konstruujemy payload JSON
-            payload = {
-                "content": "", # Pusta treść, bo wszystko jest w embedach
-                "embeds": embeds
-            }
+        # 3. SPRAWDZAMY CZY MIEŚCI SIĘ W AKTUALNEJ PACZCE
+        # Warunki:
+        # A. Czy dodanie pliku nie przekroczy 7.5 MB?
+        # B. Czy liczba plików nie przekroczy 10?
+        if (current_batch_size + img_size > MAX_DISCORD_SIZE_BYTES) or (current_batch_count >= MAX_DISCORD_FILES_COUNT):
             
-            # Wysyłamy multipart/form-data (pliki + JSON)
-            response = requests.post(
-                DISCORD_URL, 
-                data={"payload_json": json.dumps(payload)}, 
-                files=files
-            )
+            # JEŚLI SIĘ NIE MIEŚCI -> Wysyłamy obecną paczkę
+            send_single_batch(current_batch_files, current_batch_embeds, batch_counter)
             
-            if response.status_code not in [200, 204]:
-                print(f"⚠️ Błąd Discorda przy paczce {i+1}: {response.status_code} - {response.text}")
-            else:
-                print(f"   -> Wysłano galerię {i+1}")
-                
-        except Exception as e:
-            print(f"⚠️ Błąd wysyłania paczki: {e}")
-        finally:
-            for b in buffers:
+            # Czyścimy zmienne pod nową paczkę
+            batch_counter += 1
+            current_batch_files = {}
+            current_batch_embeds = []
+            current_batch_size = 0
+            current_batch_count = 0
+            
+            # Zamykamy bufory z poprzedniej paczki (ważne dla pamięci RAM)
+            for b in open_buffers:
                 b.close()
+            open_buffers = []
+
+        # 4. Dodajemy plik do (obecnej lub nowej) paczki
+        open_buffers.append(compressed_img)
+        
+        filename = f"img_{batch_counter}_{idx}.jpg"
+        current_batch_files[filename] = (filename, compressed_img, "image/jpeg")
+        
+        embed = {
+            "url": "https://www.biedronka.pl/pl/gazetki",
+            "image": {"url": f"attachment://{filename}"}
+        }
+        
+        # Tytuł tylko przy pierwszym elemencie w paczce
+        if current_batch_count == 0:
+            embed["title"] = f"Znaleziono: {KEYWORD_TO_FIND} (Paczka {batch_counter})"
+            embed["color"] = 5763719
+
+        current_batch_embeds.append(embed)
+        current_batch_size += img_size
+        current_batch_count += 1
+
+    # 5. Na koniec pętli wysyłamy to, co zostało (ostatnia, niedopełniona paczka)
+    if current_batch_files:
+        send_single_batch(current_batch_files, current_batch_embeds, batch_counter)
+        for b in open_buffers:
+            b.close()
 
 def sanitize_filename(name):
     name = name.replace(" ", "_")
@@ -265,9 +296,9 @@ def main():
     print(f"   KONIEC SKANOWANIA")
     print(f"   Znaleziono łącznie: {len(all_found_images_paths)} stron z frazą '{KEYWORD_TO_FIND}'.")
     
-    # KROK 4: Wysyłanie grupowe na Discorda (Galerie)
+    # KROK 4: Wysyłanie dynamiczne na Discorda
     if DISCORD_URL and all_found_images_paths:
-        send_discord_gallery(all_found_images_paths)
+        send_discord_gallery_dynamic(all_found_images_paths)
     elif DISCORD_URL and not all_found_images_paths:
         print("   Brak wyników do wysłania na Discorda.")
     
