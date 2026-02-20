@@ -9,6 +9,8 @@ from io import BytesIO
 import os
 import threading
 import json
+import sqlite3
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 
@@ -17,13 +19,15 @@ load_dotenv()
 
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-KEYWORD_TO_FIND = "DADA" 
+KEYWORD_TO_FIND = "baton" 
 SAVE_FOLDER = "gazetki"
 MAX_WORKERS = 5 # Utrzymujemy 5 wątków (każdy robi teraz 2x więcej pracy, więc nie zwiększamy)
+OCR_CACHE_DB = "ocr_cache.db"
 
 DISCORD_URL = os.getenv("DISCORD_WEBHOOK_URL")
 MAX_DISCORD_SIZE_BYTES = 7.5 * 1024 * 1024 
 MAX_DISCORD_FILES_COUNT = 10
+MAX_DISCORD_EMBEDS_COUNT = 10
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -32,6 +36,131 @@ HEADERS = {
 print_lock = threading.Lock()
 
 # --------------------
+
+def chunked(items, size=900):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+def init_cache_db():
+    conn = sqlite3.connect(OCR_CACHE_DB)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pages (
+            image_url TEXT PRIMARY KEY,
+            leaflet_id TEXT,
+            leaflet_name TEXT,
+            page_number INTEGER,
+            ocr_text TEXT,
+            indexed_at TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pages_leaflet_id ON pages(leaflet_id)")
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS ocr_fts
+        USING fts5(
+            image_url,
+            leaflet_name,
+            page_number UNINDEXED,
+            ocr_text,
+            tokenize = 'unicode61 remove_diacritics 2'
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+def get_cached_urls(conn, tasks):
+    urls = [task["url"] for task in tasks]
+    cached_urls = set()
+    for urls_chunk in chunked(urls):
+        placeholders = ",".join(["?"] * len(urls_chunk))
+        query = f"SELECT image_url FROM pages WHERE image_url IN ({placeholders})"
+        rows = conn.execute(query, urls_chunk).fetchall()
+        cached_urls.update(row[0] for row in rows)
+    return cached_urls
+
+def build_fts_match_query(keyword):
+    safe_keyword = keyword.replace('"', '""').strip()
+    return f'"{safe_keyword}"'
+
+def get_cached_hits(conn, tasks, keyword):
+    if not tasks:
+        return []
+
+    task_by_url = {task["url"]: task for task in tasks}
+    match_query = build_fts_match_query(keyword)
+    hits = []
+
+    for urls_chunk in chunked(list(task_by_url.keys())):
+        placeholders = ",".join(["?"] * len(urls_chunk))
+        query = f"""
+            SELECT image_url, leaflet_name, page_number
+            FROM ocr_fts
+            WHERE ocr_fts MATCH ? AND image_url IN ({placeholders})
+        """
+        rows = conn.execute(query, [match_query, *urls_chunk]).fetchall()
+        for image_url, leaflet_name, page_number in rows:
+            task = task_by_url.get(image_url)
+            if task:
+                hits.append((task, leaflet_name, page_number))
+
+    return hits
+
+def save_page_to_cache(conn, task_data, ocr_text):
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        INSERT INTO pages (image_url, leaflet_id, leaflet_name, page_number, ocr_text, indexed_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(image_url) DO UPDATE SET
+            leaflet_id=excluded.leaflet_id,
+            leaflet_name=excluded.leaflet_name,
+            page_number=excluded.page_number,
+            ocr_text=excluded.ocr_text,
+            indexed_at=excluded.indexed_at
+        """,
+        (
+            task_data["url"],
+            task_data["leaflet_id"],
+            task_data["leaflet_name"],
+            task_data["page_number"],
+            ocr_text,
+            now,
+        ),
+    )
+    conn.execute("DELETE FROM ocr_fts WHERE image_url = ?", (task_data["url"],))
+    conn.execute(
+        "INSERT INTO ocr_fts (image_url, leaflet_name, page_number, ocr_text) VALUES (?, ?, ?, ?)",
+        (
+            task_data["url"],
+            task_data["leaflet_name"],
+            str(task_data["page_number"]),
+            ocr_text,
+        ),
+    )
+
+def keyword_in_text(text, keyword):
+    words = re.findall(r"\w+", text.lower(), flags=re.UNICODE)
+    return keyword.lower() in words
+
+def save_image_bytes(leaflet_name, page_number, image_bytes):
+    safe_name = sanitize_filename(leaflet_name)
+    filename = f"{safe_name}_strona_{page_number}.png"
+    path = os.path.join(SAVE_FOLDER, filename)
+    with open(path, 'wb') as f:
+        f.write(image_bytes)
+    return path
+
+def download_and_save_image(task_data):
+    try:
+        resp = requests.get(task_data["url"], headers=HEADERS, timeout=15)
+        return save_image_bytes(task_data["leaflet_name"], task_data["page_number"], resp.content)
+    except Exception:
+        return None
 
 def preprocess_red_background(img):
     """
@@ -95,6 +224,8 @@ def send_single_batch(files_dict, embeds_list, batch_num):
         response = requests.post(DISCORD_URL, data={"payload_json": json.dumps(payload)}, files=files_dict)
         if response.status_code not in [200, 204]:
             print(f"\n⚠️ Błąd Discorda: {response.status_code}")
+            if response.text:
+                print(f"   Odpowiedź API: {response.text[:500]}")
         else:
             with print_lock:
                 print(f"\n📨 Wysłano paczkę nr {batch_num}")
@@ -117,7 +248,11 @@ def send_discord_gallery_dynamic(found_files):
         if not compressed_img: continue
         img_size = compressed_img.getbuffer().nbytes
         
-        if (current_batch_size + img_size > MAX_DISCORD_SIZE_BYTES) or (current_batch_count >= MAX_DISCORD_FILES_COUNT):
+        if (
+            (current_batch_size + img_size > MAX_DISCORD_SIZE_BYTES)
+            or (current_batch_count >= MAX_DISCORD_FILES_COUNT)
+            or (len(current_batch_embeds) >= MAX_DISCORD_EMBEDS_COUNT)
+        ):
             send_single_batch(current_batch_files, current_batch_embeds, batch_counter)
             batch_counter += 1
             current_batch_files = {}
@@ -181,14 +316,17 @@ def get_leaflet_pages(leaflet_id):
         for page_data in data.get('images_desktop', []):
             valid_images = [img for img in page_data.get('images', []) if img]
             if valid_images:
-                pages_info.append({"leaflet_name": name, "page_number": page_data.get('page') + 1, "url": valid_images[0]})
+                pages_info.append({
+                    "leaflet_id": leaflet_id,
+                    "leaflet_name": name,
+                    "page_number": page_data.get('page') + 1,
+                    "url": valid_images[0],
+                })
         return name, pages_info
     except: return "Nieznana", []
 
 def process_page(task_data):
     url = task_data['url']
-    name = task_data['leaflet_name']
-    page = task_data['page_number']
     
     try:
         resp = requests.get(url, headers=HEADERS, timeout=15)
@@ -208,19 +346,10 @@ def process_page(task_data):
         
         # Łączymy wyniki z obu skanów
         full_text = text_std + " " + text_red
-        
-        if KEYWORD_TO_FIND.lower() in full_text.lower():
-            safe_name = sanitize_filename(name)
-            filename = f"{safe_name}_strona_{page}.png"
-            path = os.path.join(SAVE_FOLDER, filename)
-            with open(path, 'wb') as f: f.write(content)
-            
-            msg = f"🔥 ZNALEZIONO! {name} (Str. {page})"
-            return True, msg, path 
-        
-        return False, None, None
+
+        return full_text, content
     except Exception:
-        return False, None, None
+        return None, None
 
 def main():
     os.makedirs(SAVE_FOLDER, exist_ok=True)
@@ -240,32 +369,65 @@ def main():
             all_tasks.extend(pages)
     
     total_pages = len(all_tasks)
-    print(f"\n🚀 KROK 3: SKANOWANIE HYBRYDOWE (Standard + Anty-Czerwony)")
-    
-    processed = 0
+    print(f"\n🗂️ KROK 3: Ładuję indeks OCR ({OCR_CACHE_DB})")
+
+    conn = init_cache_db()
+    cached_urls = get_cached_urls(conn, all_tasks)
+    cached_tasks = [task for task in all_tasks if task["url"] in cached_urls]
+    uncached_tasks = [task for task in all_tasks if task["url"] not in cached_urls]
+
+    print(f"   ✅ W cache: {len(cached_tasks)} stron")
+    print(f"   🆕 Do OCR: {len(uncached_tasks)} stron")
+
     all_found_images_paths = []
     found_count = 0
+
+    print(f"\n🔍 KROK 4: Wyszukiwanie w indeksie dla znanych stron...")
+    cached_hits = get_cached_hits(conn, cached_tasks, KEYWORD_TO_FIND)
+    for task, leaflet_name, page_number in cached_hits:
+        saved_path = download_and_save_image(task)
+        if saved_path:
+            found_count += 1
+            all_found_images_paths.append(saved_path)
+            print(f"🔥 ZNALEZIONO (CACHE)! {leaflet_name} (Str. {page_number})")
+    
+    print(f"\n🚀 KROK 5: OCR tylko dla nowych stron (hybrydowo)")
+    processed = 0
+    writes_since_commit = 0
     
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_task = {executor.submit(process_page, task): task for task in all_tasks}
+        future_to_task = {executor.submit(process_page, task): task for task in uncached_tasks}
         
         for future in as_completed(future_to_task):
             task = future_to_task[future]
             processed += 1
-            progress = (processed / total_pages) * 100
-            status_msg = f"⏳ {processed}/{total_pages} ({progress:.0f}%) | {task['leaflet_name'][:20]}... S.{task['page_number']}"
+            progress = (processed / len(uncached_tasks)) * 100 if uncached_tasks else 100
+            status_msg = f"⏳ {processed}/{len(uncached_tasks)} ({progress:.0f}%) | {task['leaflet_name'][:20]}... S.{task['page_number']}"
             with print_lock: print(f"\r{status_msg:<80}", end="", flush=True)
             
-            found, msg, saved_path = future.result()
-            if found:
+            ocr_text, image_bytes = future.result()
+            if not ocr_text:
+                continue
+
+            save_page_to_cache(conn, task, ocr_text)
+            writes_since_commit += 1
+            if writes_since_commit >= 25:
+                conn.commit()
+                writes_since_commit = 0
+
+            if keyword_in_text(ocr_text, KEYWORD_TO_FIND) and image_bytes:
+                saved_path = save_image_bytes(task['leaflet_name'], task['page_number'], image_bytes)
                 found_count += 1
                 all_found_images_paths.append(saved_path)
                 with print_lock:
-                    print(f"\r{' '*80}\r", end="") 
-                    print(msg)
+                    print(f"\r{' '*80}\r", end="")
+                    print(f"🔥 ZNALEZIONO! {task['leaflet_name']} (Str. {task['page_number']})")
+
+    conn.commit()
+    conn.close()
 
     print(f"\n\n{'='*60}")
-    print(f"   Znaleziono: {len(all_found_images_paths)}")
+    print(f"   Znaleziono: {found_count}")
     
     if DISCORD_URL and all_found_images_paths:
         send_discord_gallery_dynamic(all_found_images_paths)
