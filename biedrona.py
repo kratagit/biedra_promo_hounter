@@ -13,13 +13,17 @@ import sqlite3
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+import platform
 
 # --- KONFIGURACJA ---
 load_dotenv() 
 
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else:
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 
-KEYWORD_TO_FIND = "baton" 
+KEYWORD_TO_FIND = "mleko" 
 SAVE_FOLDER = "gazetki"
 MAX_WORKERS = 5 # Utrzymujemy 5 wątków (każdy robi teraz 2x więcej pracy, więc nie zwiększamy)
 OCR_CACHE_DB = "ocr_cache.db"
@@ -229,11 +233,15 @@ def send_single_batch(files_dict, embeds_list, batch_num):
         else:
             with print_lock:
                 print(f"\n📨 Wysłano paczkę nr {batch_num}")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"\n⚠️ Błąd podczas wysyłania do Discorda: {e}")
 
 def send_discord_gallery_dynamic(found_files):
-    if not DISCORD_URL or not found_files: return
+    if not DISCORD_URL:
+        print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysyłanie na Discorda.")
+        return
+    if not found_files:
+        return
     print(f"\n📦 Pakowanie {len(found_files)} zdjęć dla Discorda...")
 
     current_batch_files = {}
@@ -429,8 +437,11 @@ def main():
     print(f"\n\n{'='*60}")
     print(f"   Znaleziono: {found_count}")
     
-    if DISCORD_URL and all_found_images_paths:
-        send_discord_gallery_dynamic(all_found_images_paths)
+    if all_found_images_paths:
+        if DISCORD_URL:
+            send_discord_gallery_dynamic(all_found_images_paths)
+        else:
+            print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysyłanie na Discorda.")
     
     print("="*60)
 
