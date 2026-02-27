@@ -43,13 +43,19 @@ def get_tesseract_cmd():
             print(f"[Tesseract] TESSERACT_CMD was set to '{env_cmd}' but file not found!", file=sys.stderr)
         else:
             if tessdata_prefix:
+                # Auto-detect: if tessdata_prefix has a tessdata/ subfolder, use it
+                # Tesseract 5 expects TESSDATA_PREFIX to point directly to the folder with .traineddata files
+                tessdata_sub = os.path.join(tessdata_prefix, 'tessdata')
+                if os.path.isdir(tessdata_sub) and os.path.isfile(os.path.join(tessdata_sub, 'pol.traineddata')):
+                    tessdata_prefix = tessdata_sub
                 os.environ['TESSDATA_PREFIX'] = tessdata_prefix
-                tessdata_dir = os.path.join(tessdata_prefix, 'tessdata')
-                if os.path.isdir(tessdata_dir):
-                    files = os.listdir(tessdata_dir)
-                    print(f"[Tesseract] tessdata/ contains: {files}", file=sys.stderr)
+                traineddata = os.path.join(tessdata_prefix, 'pol.traineddata')
+                if os.path.isfile(traineddata):
+                    print(f"[Tesseract] Found pol.traineddata at {traineddata}", file=sys.stderr)
                 else:
-                    print(f"[Tesseract] WARNING: tessdata dir not found at {tessdata_dir}", file=sys.stderr)
+                    print(f"[Tesseract] WARNING: pol.traineddata NOT found at {traineddata}", file=sys.stderr)
+                    files = os.listdir(tessdata_prefix) if os.path.isdir(tessdata_prefix) else []
+                    print(f"[Tesseract] TESSDATA_PREFIX contents: {files}", file=sys.stderr)
             print(f"[Tesseract] Using bundled: {env_cmd}", file=sys.stderr)
             print(f"[Tesseract] TESSDATA_PREFIX: {tessdata_prefix}", file=sys.stderr)
             return env_cmd

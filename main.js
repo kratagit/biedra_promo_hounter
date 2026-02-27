@@ -187,8 +187,9 @@ ipcMain.handle('start-search', async (_event, { keyword, discordEnabled }) => {
     if (fs.existsSync(tessDir)) {
       const tessExt = process.platform === 'win32' ? '.exe' : '';
       envVars.TESSERACT_CMD = path.join(tessDir, 'tesseract' + tessExt);
-      // TESSDATA_PREFIX must point to the parent of tessdata/ — Tesseract appends /tessdata/ itself
-      envVars.TESSDATA_PREFIX = tessDir;
+      // TESSDATA_PREFIX must point directly to the folder containing .traineddata files
+      const tessdataDir = path.join(tessDir, 'tessdata');
+      envVars.TESSDATA_PREFIX = fs.existsSync(tessdataDir) ? tessdataDir : tessDir;
     }
   }
 
