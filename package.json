@@ -1,0 +1,12 @@
+{
+  "name": "biedronka-promo-hunter",
+  "version": "1.0.0",
+  "description": "Wyszukiwarka promocji w gazetkach Biedronki",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

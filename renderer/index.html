@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Biedronka Promo Hunter</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Particle Background -->
+  <canvas id="particle-canvas"></canvas>
+
+  <!-- Custom Title Bar -->
+  <header class="titlebar" id="titlebar">
+    <div class="titlebar-drag">
+      <div class="titlebar-logo">
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span class="logo-text">Promo Hunter</span>
+      </div>
+      <nav class="titlebar-nav">
+        <a href="#" class="nav-link active" data-section="search">Szukaj</a>
+        <a href="#" class="nav-link" data-section="results">Wyniki</a>
+        <a href="#" class="nav-link" data-section="settings">Ustawienia</a>
+      </nav>
+    </div>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn" id="btn-minimize" title="Minimalizuj">
+        <svg viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6"/></svg>
+      </button>
+      <button class="titlebar-btn" id="btn-maximize" title="Maksymalizuj">
+        <svg viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" rx="1"/></svg>
+      </button>
+      <button class="titlebar-btn btn-close" id="btn-close" title="Zamknij">
+        <svg viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="app-content">
+    <!-- Search Section (Hero) -->
+    <section class="section section-search active" id="section-search">
+      <div class="hero-content">
+        <div class="badge">
+          <span class="badge-dot"></span>
+          Biedronka Promo Hunter &mdash; Wyszukiwarka promocji
+          <svg class="badge-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="8" x2="13" y2="8"/><polyline points="9,4 13,8 9,12"/>
+          </svg>
+        </div>
+        <h1 class="hero-title">Znajdź <span class="gradient-text">promocje</span><br>w gazetkach</h1>
+        <p class="hero-subtitle">Wyszukuj produkty w aktualnych gazetkach Biedronki.<br>OCR analizuje każdą stronę, by znaleźć to czego szukasz.</p>
+
+        <div class="search-container">
+          <div class="search-bar">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="search-input" placeholder="np. mleko, masło, chleb..." autocomplete="off" spellcheck="false">
+            <button class="search-btn" id="search-btn">
+              <span class="btn-text">Szukaj</span>
+              <svg class="btn-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="8" x2="13" y2="8"/><polyline points="9,4 13,8 9,12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Discord Toggle -->
+        <div class="discord-toggle-container">
+          <span class="toggle-label">
+            <svg class="discord-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
+            </svg>
+            Eksport Discord
+          </span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="discord-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Brands/features bar -->
+      <div class="features-bar">
+        <div class="feature-item">
+          <span class="feature-icon">⚡</span>
+          <span>Wielowątkowy OCR</span>
+        </div>
+        <div class="feature-dot"></div>
+        <div class="feature-item">
+          <span class="feature-icon">🧠</span>
+          <span>Inteligentny Cache</span>
+        </div>
+        <div class="feature-dot"></div>
+        <div class="feature-item">
+          <span class="feature-icon">🎯</span>
+          <span>Dual-Scan Engine</span>
+        </div>
+        <div class="feature-dot"></div>
+        <div class="feature-item">
+          <span class="feature-icon">📡</span>
+          <span>Discord Webhook</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Progress Section -->
+    <section class="section section-progress" id="section-progress">
+      <div class="progress-content">
+        <div class="progress-sphere-container">
+          <div class="progress-ring">
+            <svg class="ring-svg" viewBox="0 0 120 120">
+              <circle class="ring-bg" cx="60" cy="60" r="52"/>
+              <circle class="ring-fill" cx="60" cy="60" r="52" id="progress-ring-fill"/>
+            </svg>
+            <span class="progress-percent" id="progress-percent">0%</span>
+          </div>
+        </div>
+        <h2 class="progress-title" id="progress-title">Skanowanie gazetek...</h2>
+        <p class="progress-detail" id="progress-detail">Inicjalizacja...</p>
+        <div class="progress-bar-container">
+          <div class="progress-bar">
+            <div class="progress-bar-fill" id="progress-bar-fill"></div>
+          </div>
+        </div>
+        <button class="stop-btn" id="stop-btn">
+          <svg viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="2"/></svg>
+          Zatrzymaj
+        </button>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section class="section section-results" id="section-results">
+      <div class="results-header">
+        <h2 class="results-title">
+          <span class="gradient-text" id="results-count">0</span> wyników dla &bdquo;<span id="results-keyword"></span>&rdquo;
+        </h2>
+        <button class="new-search-btn" id="new-search-btn">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="4,8 1,8 1,1 8,1 8,4"/><line x1="6" y1="10" x2="15" y2="1"/>
+          </svg>
+          Nowe wyszukiwanie
+        </button>
+      </div>
+      <div class="gallery-grid" id="gallery-grid">
+        <!-- Cards injected by JS -->
+      </div>
+      <div class="no-results" id="no-results" style="display:none;">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="28" cy="28" r="20"/><line x1="42" y1="42" x2="56" y2="56"/>
+          <line x1="22" y1="28" x2="34" y2="28"/>
+        </svg>
+        <h3>Brak wyników</h3>
+        <p>Nie znaleziono promocji dla podanego hasła.</p>
+      </div>
+    </section>
+
+    <!-- Settings Section -->
+    <section class="section section-settings" id="section-settings">
+      <div class="settings-container">
+        <h2 class="settings-title">Ustawienia</h2>
+
+        <div class="settings-card" style="animation-delay: 0.05s">
+          <div class="settings-card-title">Discord Webhook</div>
+          <div class="settings-card-desc">Podaj URL webhooka, na który będą wysyłane znalezione promocje. Możesz go utworzyć w ustawieniach kanału Discord &rarr; Integracje &rarr; Webhooki.</div>
+          <div class="settings-row" style="gap: 8px;">
+            <input type="text" class="settings-input" id="settings-webhook" placeholder="https://discord.com/api/webhooks/...">
+            <button class="settings-save-btn" id="settings-webhook-save">Zapisz</button>
+          </div>
+          <div class="settings-status" id="webhook-status" style="display:none;"></div>
+        </div>
+
+        <div class="settings-card" style="animation-delay: 0.15s">
+          <div class="settings-card-title">Eksport na Discorda</div>
+          <div class="settings-card-desc">Włącz lub wyłącz automatyczne wysyłanie wyników na Discorda po zakończeniu wyszukiwania.</div>
+          <div class="settings-row">
+            <span class="settings-row-label">Wysyłaj wyniki na Discorda</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="settings-discord-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-card" style="animation-delay: 0.25s">
+          <div class="settings-card-title">Informacje</div>
+          <div class="settings-card-desc">
+            <strong>Biedronka Promo Hunter</strong> v1.0<br>
+            Wyszukiwarka promocji w gazetkach Biedronki z OCR.<br>
+            Silnik: Dual-Scan (standardowy + snajper) z cache FTS5.
+          </div>
+        </div>
+
+        <p class="settings-info">Zmiany są zapisywane lokalnie w przeglądarce.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox">
+    <div class="lightbox-backdrop"></div>
+    <div class="lightbox-content">
+      <img class="lightbox-img" id="lightbox-img" alt="Strona gazetki">
+      <div class="lightbox-info" id="lightbox-info"></div>
+      <button class="lightbox-close" id="lightbox-close">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/>
+        </svg>
+      </button>
+      <button class="lightbox-nav lightbox-prev" id="lightbox-prev">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="10,2 4,8 10,14"/>
+        </svg>
+      </button>
+      <button class="lightbox-nav lightbox-next" id="lightbox-next">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6,2 12,8 6,14"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script src="particles.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

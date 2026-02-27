@@ -12,6 +12,8 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import platform
+import sys
+import argparse
 
 # --- KONFIGURACJA ---
 load_dotenv() 
@@ -388,6 +390,112 @@ def process_page(task_data):
     except Exception:
         return None, None
 
+def emit(event_type, **kwargs):
+    """Emit a JSON event to stdout for the GUI app."""
+    msg = {"type": event_type, **kwargs}
+    sys.stdout.write("JSON:" + json.dumps(msg, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def gui_main(keyword, discord_enabled):
+    """Main function for GUI mode - outputs JSON events instead of printing."""
+    global KEYWORD_TO_FIND, DISCORD_URL
+    KEYWORD_TO_FIND = keyword
+    if not discord_enabled:
+        DISCORD_URL = None
+
+    os.makedirs(SAVE_FOLDER, exist_ok=True)
+
+    emit("status", message="Skanuję stronę główną Biedronki...")
+    uuids = get_all_leaflet_uuids()
+    if not uuids:
+        emit("error", message="Nie znaleziono żadnych gazetek na stronie.")
+        emit("done", found_count=0)
+        return
+
+    emit("status", message=f"Wykryto {len(uuids)} gazetek. Pobieram listę stron...")
+
+    all_tasks = []
+    for uuid in uuids:
+        name, pages = get_leaflet_pages(uuid)
+        if pages:
+            all_tasks.extend(pages)
+
+    total_pages = len(all_tasks)
+    if total_pages == 0:
+        emit("error", message="Nie udało się pobrać stron gazetek.")
+        emit("done", found_count=0)
+        return
+
+    emit("status", message=f"Łącznie {total_pages} stron. Ładuję indeks OCR...")
+
+    conn = init_cache_db()
+    prune_cache_for_active_leaflets(conn, uuids)
+    cached_urls = get_cached_urls(conn, all_tasks)
+    cached_tasks = [t for t in all_tasks if t["url"] in cached_urls]
+    uncached_tasks = [t for t in all_tasks if t["url"] not in cached_urls]
+
+    emit("status", message=f"Cache: {len(cached_tasks)} stron | Nowe: {len(uncached_tasks)} stron")
+
+    all_found = []
+    found_count = 0
+
+    # Search in cache
+    emit("status", message="Przeszukuję indeks cache...")
+    cached_hits = get_cached_hits(conn, cached_tasks, KEYWORD_TO_FIND)
+    for task, leaflet_name, page_number in cached_hits:
+        saved_path = download_and_save_image(task)
+        if saved_path:
+            found_count += 1
+            all_found.append(saved_path)
+            abs_path = os.path.abspath(saved_path)
+            emit("found", path=abs_path, leaflet_name=leaflet_name, page_number=int(page_number))
+
+    # OCR for uncached pages
+    total_uncached = len(uncached_tasks)
+    if total_uncached > 0:
+        emit("progress", current=0, total=total_uncached, leaflet="", page=0)
+        processed = 0
+        writes_since_commit = 0
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_task = {executor.submit(process_page, task): task for task in uncached_tasks}
+
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                processed += 1
+                emit("progress", current=processed, total=total_uncached,
+                     leaflet=task['leaflet_name'][:30], page=task['page_number'])
+
+                ocr_text, image_bytes = future.result()
+                if not ocr_text:
+                    continue
+
+                save_page_to_cache(conn, task, ocr_text)
+                writes_since_commit += 1
+                if writes_since_commit >= 25:
+                    conn.commit()
+                    writes_since_commit = 0
+
+                if keyword_in_text(ocr_text, KEYWORD_TO_FIND) and image_bytes:
+                    saved_path = save_image_bytes(task['leaflet_name'], task['page_number'], image_bytes)
+                    found_count += 1
+                    all_found.append(saved_path)
+                    abs_path = os.path.abspath(saved_path)
+                    emit("found", path=abs_path,
+                         leaflet_name=task['leaflet_name'], page_number=task['page_number'])
+
+    conn.commit()
+
+    # Discord
+    if all_found and DISCORD_URL:
+        emit("status", message="Wysyłam wyniki na Discorda...")
+        send_discord_gallery_dynamic(all_found)
+
+    conn.close()
+    emit("done", found_count=found_count)
+
+
 def main():
     global KEYWORD_TO_FIND
     
@@ -486,8 +594,20 @@ def main():
     print("="*60)
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(f"\n❌ Błąd: {e}")
-        input("Enter...")
+    if "--gui" in sys.argv:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--gui", action="store_true")
+        parser.add_argument("--keyword", required=True, type=str)
+        parser.add_argument("--discord", action="store_true", default=False)
+        args = parser.parse_args()
+        try:
+            gui_main(args.keyword, args.discord)
+        except Exception as e:
+            emit("error", message=str(e))
+            emit("done", found_count=0)
+    else:
+        try:
+            main()
+        except Exception as e:
+            print(f"\n❌ Błąd: {e}")
+            input("Enter...")

@@ -1,5 +1,8 @@
 gazetki/
 ocr_cache.db
+node_modules/
+config.json
+.env
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
