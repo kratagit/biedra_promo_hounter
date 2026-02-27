@@ -73,9 +73,9 @@ pytesseract.pytesseract.tesseract_cmd = get_tesseract_cmd()
 # Use BIEDRONA_DATA_DIR if set (packaged Electron), otherwise script directory
 DATA_DIR = os.environ.get('BIEDRONA_DATA_DIR', os.path.dirname(os.path.abspath(__file__)))
 
-KEYWORD_TO_FIND = "" # Zostanie ustawione przez użytkownika
+KEYWORD_TO_FIND = "" # Zostanie ustawione przez uzytkownika
 SAVE_FOLDER = os.path.join(DATA_DIR, "gazetki")
-MAX_WORKERS = 5 # Utrzymujemy 5 wątków (każdy robi teraz 2x więcej pracy, więc nie zwiększamy)
+MAX_WORKERS = 5 # Utrzymujemy 5 watkow (kazdy robi teraz 2x wiecej pracy, wiec nie zwiekszamy)
 OCR_CACHE_DB = os.path.join(DATA_DIR, "ocr_cache.db")
 
 DISCORD_URL = os.getenv("DISCORD_WEBHOOK_URL")
@@ -250,18 +250,18 @@ def download_and_save_image(task_data):
 def preprocess_red_background(img):
     """
     Metoda 'Snajper' z Wersji 25.
-    Idealna na czerwone tła, słaba na turkusowe.
-    Wyciąga kanał Zielony.
+    Idealna na czerwone tla, slaba na turkusowe.
+    Wyciaga kanal Zielony.
     """
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
     r, g, b = img.split()
     
-    # Używamy kanału G (Zielonego) jako bazy
+    # Uzywamy kanalu G (Zielonego) jako bazy
     img = g 
     
-    # Powiększenie dla małych liter
+    # Powiekszenie dla malych liter
     img = img.resize((img.width * 2, img.height * 2), Image.Resampling.BILINEAR)
     
     # Progowanie
@@ -272,12 +272,12 @@ def preprocess_red_background(img):
 def preprocess_standard(img):
     """
     Metoda Standardowa.
-    Dobra na białe, żółte, turkusowe tła.
+    Dobra na biale, zolte, turkusowe tla.
     """
-    # Konwersja na szarość
+    # Konwersja na szarosc
     img = img.convert('L')
     
-    # Lekkie powiększenie pomaga zawsze
+    # Lekkie powiekszenie pomaga zawsze
     img = img.resize((int(img.width * 1.5), int(img.height * 1.5)), Image.Resampling.BILINEAR)
     
     # Auto-kontrast
@@ -300,7 +300,7 @@ def compress_image_for_discord(image_path):
         buffer.seek(0)
         return buffer
     except Exception as e:
-        print(f"Błąd kompresji: {e}")
+        print(f"Blad kompresji: {e}")
         return None
 
 def send_single_batch(files_dict, embeds_list, batch_num):
@@ -308,22 +308,22 @@ def send_single_batch(files_dict, embeds_list, batch_num):
         payload = {"content": "", "embeds": embeds_list}
         response = requests.post(DISCORD_URL, data={"payload_json": json.dumps(payload)}, files=files_dict)
         if response.status_code not in [200, 204]:
-            print(f"\n⚠️ Błąd Discorda: {response.status_code}")
+            print(f"\n⚠️ Blad Discorda: {response.status_code}")
             if response.text:
-                print(f"   Odpowiedź API: {response.text[:500]}")
+                print(f"   Odpowiedz API: {response.text[:500]}")
         else:
             with print_lock:
-                print(f"\n📨 Wysłano paczkę nr {batch_num}")
+                print(f"\n📨 Wyslano paczke nr {batch_num}")
     except Exception as e:
-        print(f"\n⚠️ Błąd podczas wysyłania do Discorda: {e}")
+        print(f"\n⚠️ Blad podczas wysylania do Discorda: {e}")
 
 def send_discord_gallery_dynamic(found_files):
     if not DISCORD_URL:
-        print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysyłanie na Discorda.")
+        print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysylanie na Discorda.")
         return
     if not found_files:
         return
-    print(f"\n📦 Pakowanie {len(found_files)} zdjęć dla Discorda...")
+    print(f"\n📦 Pakowanie {len(found_files)} zdjec dla Discorda...")
 
     current_batch_files = {}
     current_batch_embeds = []
@@ -374,7 +374,7 @@ def sanitize_filename(name):
 
 def get_all_leaflet_uuids():
     main_page_url = "https://www.biedronka.pl/pl/gazetki"
-    print(f"🔎 KROK 1: Skanuję stronę główną...")
+    print(f"🔎 KROK 1: Skanuje strone glowna...")
     try:
         response = requests.get(main_page_url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -421,19 +421,19 @@ def process_page(task_data):
         resp = requests.get(url, headers=HEADERS, timeout=15)
         content = resp.content
         
-        # Wczytujemy oryginał
+        # Wczytujemy oryginal
         img_original = Image.open(BytesIO(content))
         
-        # --- SKAN 1: STANDARDOWY (Dla turkusowych, białych itp.) ---
-        img_std = preprocess_standard(img_original.copy()) # Kopia, żeby nie zepsuć oryginału
+        # --- SKAN 1: STANDARDOWY (Dla turkusowych, bialych itp.) ---
+        img_std = preprocess_standard(img_original.copy()) # Kopia, zeby nie zepsuc oryginalu
         text_std = pytesseract.image_to_string(img_std, lang='pol')
         
-        # --- SKAN 2: SNAJPER (Dla czerwonych i trudnych kontrastów) ---
+        # --- SKAN 2: SNAJPER (Dla czerwonych i trudnych kontrastow) ---
         img_red = preprocess_red_background(img_original.copy())
-        # Tutaj używamy konfiguracji psm 6 (blok tekstu), bo po progowaniu napisy są wyraźne
+        # Tutaj uzywamy konfiguracji psm 6 (blok tekstu), bo po progowaniu napisy sa wyrazne
         text_red = pytesseract.image_to_string(img_red, lang='pol', config='--psm 6')
         
-        # Łączymy wyniki z obu skanów
+        # laczymy wyniki z obu skanow
         full_text = text_std + " " + text_red
 
         return full_text, content
@@ -490,14 +490,14 @@ def gui_main(keyword, discord_enabled):
 
     os.makedirs(SAVE_FOLDER, exist_ok=True)
 
-    emit("status", message="Skanuję stronę główną Biedronki...")
+    emit("status", message="Skanuje strone glowna Biedronki...")
     uuids = get_all_leaflet_uuids()
     if not uuids:
-        emit("error", message="Nie znaleziono żadnych gazetek na stronie.")
+        emit("error", message="Nie znaleziono zadnych gazetek na stronie.")
         emit("done", found_count=0)
         return
 
-    emit("status", message=f"Wykryto {len(uuids)} gazetek. Pobieram listę stron...")
+    emit("status", message=f"Wykryto {len(uuids)} gazetek. Pobieram liste stron...")
 
     all_tasks = []
     for uuid in uuids:
@@ -507,11 +507,11 @@ def gui_main(keyword, discord_enabled):
 
     total_pages = len(all_tasks)
     if total_pages == 0:
-        emit("error", message="Nie udało się pobrać stron gazetek.")
+        emit("error", message="Nie udalo sie pobrac stron gazetek.")
         emit("done", found_count=0)
         return
 
-    emit("status", message=f"Łącznie {total_pages} stron. Ładuję indeks OCR...")
+    emit("status", message=f"lacznie {total_pages} stron. laduje indeks OCR...")
 
     conn = init_cache_db()
     prune_cache_for_active_leaflets(conn, uuids)
@@ -529,7 +529,7 @@ def gui_main(keyword, discord_enabled):
 
     # Search in cache — with per-chunk progress
     if cached_tasks:
-        emit("status", message="Przeszukuję indeks cache...")
+        emit("status", message="Przeszukuje indeks cache...")
         # Build lookup for cached tasks
         task_by_url = {task["url"]: task for task in cached_tasks}
         match_query = build_fts_match_query(KEYWORD_TO_FIND)
@@ -597,7 +597,7 @@ def gui_main(keyword, discord_enabled):
 
     # Discord
     if all_found and DISCORD_URL:
-        emit("status", message="Wysyłam wyniki na Discorda...")
+        emit("status", message="Wysylam wyniki na Discorda...")
         send_discord_gallery_dynamic(all_found)
 
     conn.close()
@@ -608,10 +608,10 @@ def main():
     global KEYWORD_TO_FIND
     
     print("="*60)
-    KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, masło): ").strip()
+    KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, maslo): ").strip()
     while not KEYWORD_TO_FIND:
-        print("Hasło nie może być puste!")
-        KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, masło): ").strip()
+        print("Haslo nie moze byc puste!")
+        KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, maslo): ").strip()
 
     os.makedirs(SAVE_FOLDER, exist_ok=True)
     print("="*60)
@@ -622,7 +622,7 @@ def main():
     if not uuids: return
 
     all_tasks = []
-    print(f"\n📂 KROK 2: Przygotowuję listę stron...")
+    print(f"\n📂 KROK 2: Przygotowuje liste stron...")
     for uuid in uuids:
         name, pages = get_leaflet_pages(uuid)
         if pages:
@@ -630,12 +630,12 @@ def main():
             all_tasks.extend(pages)
     
     total_pages = len(all_tasks)
-    print(f"\n🗂️ KROK 3: Ładuję indeks OCR ({OCR_CACHE_DB})")
+    print(f"\n🗂️ KROK 3: laduje indeks OCR ({OCR_CACHE_DB})")
 
     conn = init_cache_db()
     removed_pages = prune_cache_for_active_leaflets(conn, uuids)
     if removed_pages:
-        print(f"   🧹 Usunięto z cache nieaktualne strony: {removed_pages}")
+        print(f"   🧹 Usunieto z cache nieaktualne strony: {removed_pages}")
     cached_urls = get_cached_urls(conn, all_tasks)
     cached_tasks = [task for task in all_tasks if task["url"] in cached_urls]
     uncached_tasks = [task for task in all_tasks if task["url"] not in cached_urls]
@@ -697,7 +697,7 @@ def main():
         if DISCORD_URL:
             send_discord_gallery_dynamic(all_found_images_paths)
         else:
-            print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysyłanie na Discorda.")
+            print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysylanie na Discorda.")
     
     print("="*60)
 
@@ -714,11 +714,11 @@ if __name__ == "__main__":
             import traceback
             tb = traceback.format_exc()
             print(f"[FATAL] {tb}", file=sys.stderr)
-            emit("error", message=f"Krytyczny błąd: {e}")
+            emit("error", message=f"Krytyczny blad: {e}")
             emit("done", found_count=0)
     else:
         try:
             main()
         except Exception as e:
-            print(f"\n❌ Błąd: {e}")
+            print(f"\n❌ Blad: {e}")
             input("Enter...")
