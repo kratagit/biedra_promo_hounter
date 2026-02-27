@@ -34,7 +34,10 @@ def get_tesseract_cmd():
             else:
                 print(f"[Tesseract] WARNING: tessdata dir not found at {tessdata_dir}", file=sys.stderr)
         if platform.system() != "Windows":
-            os.chmod(env_cmd, 0o755)
+            try:
+                os.chmod(env_cmd, 0o755)
+            except OSError:
+                pass  # Read-only filesystem (e.g. AppImage) — binary is already executable
         print(f"[Tesseract] Using bundled: {env_cmd}", file=sys.stderr)
         print(f"[Tesseract] TESSDATA_PREFIX: {tessdata_prefix}", file=sys.stderr)
         return env_cmd

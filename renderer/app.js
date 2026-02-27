@@ -424,8 +424,8 @@
             const errorBox = document.createElement('pre');
             errorBox.style.cssText = 'margin:12px auto;max-width:700px;padding:12px;background:#1e1e1e;color:#f44;border-radius:8px;font-size:11px;max-height:200px;overflow:auto;text-align:left;white-space:pre-wrap;word-break:break-all;';
             errorBox.textContent = evt.stderr;
-            const resultsArea = document.getElementById('resultsArea');
-            resultsArea.insertBefore(errorBox, resultsArea.firstChild);
+            const container = document.getElementById('section-progress') || document.body;
+            container.appendChild(errorBox);
           }
           finishSearch(foundImages.length);
         }
