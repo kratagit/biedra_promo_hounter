@@ -1,5 +1,3 @@
-# --- POCZĄTEK PEŁNEGO SKRYPTU (WERSJA 26 - HYBRYDA: STANDARD + KANAŁ ZIELONY) ---
-
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -23,7 +21,7 @@ if platform.system() == "Windows":
 else:
     pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 
-KEYWORD_TO_FIND = "mleko" 
+KEYWORD_TO_FIND = "" # Zostanie ustawione przez użytkownika
 SAVE_FOLDER = "gazetki"
 MAX_WORKERS = 5 # Utrzymujemy 5 wątków (każdy robi teraz 2x więcej pracy, więc nie zwiększamy)
 OCR_CACHE_DB = "ocr_cache.db"
@@ -113,6 +111,37 @@ def get_cached_hits(conn, tasks, keyword):
                 hits.append((task, leaflet_name, page_number))
 
     return hits
+
+def prune_cache_for_active_leaflets(conn, active_leaflet_ids):
+    if not active_leaflet_ids:
+        removed_pages = conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
+        conn.execute("DELETE FROM pages")
+        conn.execute("DELETE FROM ocr_fts")
+        return removed_pages
+
+    conn.execute("CREATE TEMP TABLE IF NOT EXISTS active_leaflets(leaflet_id TEXT PRIMARY KEY)")
+    conn.execute("DELETE FROM active_leaflets")
+    conn.executemany(
+        "INSERT OR IGNORE INTO active_leaflets(leaflet_id) VALUES (?)",
+        [(leaflet_id,) for leaflet_id in active_leaflet_ids],
+    )
+
+    obsolete_rows = conn.execute(
+        """
+        SELECT p.image_url
+        FROM pages p
+        LEFT JOIN active_leaflets a ON p.leaflet_id = a.leaflet_id
+        WHERE a.leaflet_id IS NULL
+        """
+    ).fetchall()
+    obsolete_urls = [row[0] for row in obsolete_rows]
+
+    for urls_chunk in chunked(obsolete_urls):
+        placeholders = ",".join(["?"] * len(urls_chunk))
+        conn.execute(f"DELETE FROM pages WHERE image_url IN ({placeholders})", urls_chunk)
+        conn.execute(f"DELETE FROM ocr_fts WHERE image_url IN ({placeholders})", urls_chunk)
+
+    return len(obsolete_urls)
 
 def save_page_to_cache(conn, task_data, ocr_text):
     now = datetime.utcnow().isoformat(timespec="seconds")
@@ -360,6 +389,14 @@ def process_page(task_data):
         return None, None
 
 def main():
+    global KEYWORD_TO_FIND
+    
+    print("="*60)
+    KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, masło): ").strip()
+    while not KEYWORD_TO_FIND:
+        print("Hasło nie może być puste!")
+        KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, masło): ").strip()
+
     os.makedirs(SAVE_FOLDER, exist_ok=True)
     print("="*60)
     print(f"   START SYSTEMU WYSZUKIWANIA PROMOCJI: '{KEYWORD_TO_FIND}'")
@@ -380,6 +417,9 @@ def main():
     print(f"\n🗂️ KROK 3: Ładuję indeks OCR ({OCR_CACHE_DB})")
 
     conn = init_cache_db()
+    removed_pages = prune_cache_for_active_leaflets(conn, uuids)
+    if removed_pages:
+        print(f"   🧹 Usunięto z cache nieaktualne strony: {removed_pages}")
     cached_urls = get_cached_urls(conn, all_tasks)
     cached_tasks = [task for task in all_tasks if task["url"] in cached_urls]
     uncached_tasks = [task for task in all_tasks if task["url"] not in cached_urls]
