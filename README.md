@@ -1,6 +1,74 @@
 # biedra_promo_hounter
 
-BiedraBOT
+BiedraBOT — wyszukiwarka promocji w gazetkach Biedronki z OCR.
+
+## Uruchamianie (tryb deweloperski)
+
+```bash
+npm install
+npm start
+```
+
+Wymaga zainstalowanego Pythona 3 i Tesseracta w systemie.
+
+## Budowanie
+
+### Wymagania wspólne
+
+- **Node.js** 18+
+- **Python** 3.10+
+- **pip** z pakietami z `requirements.txt` (`pip install -r requirements.txt`)
+- **PyInstaller** (`pip install pyinstaller`)
+
+---
+
+### Linux
+
+#### Dodatkowe wymagania
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-pol
+```
+
+#### Budowanie
+
+```bash
+./scripts/build-linux.sh
+```
+
+Skrypt automatycznie:
+1. Kompiluje `biedrona.py` do binarki przez PyInstaller → `python_dist/`
+2. Kopiuje Tesseracta z bibliotekami + `pol.traineddata` → `tesseract_dist/`
+3. Instaluje zależności npm
+4. Buduje aplikację Electron (`AppImage` + `.deb`)
+
+Wynik w katalogu `dist/`.
+
+---
+
+### Windows
+
+#### Dodatkowe wymagania
+
+- **Tesseract OCR** — zainstaluj z [UB-Mannheim](https://github.com/UB-Mannheim/tesseract/wiki)
+  - Podczas instalacji zaznacz język **Polski**
+  - Domyślna ścieżka: `C:\Program Files\Tesseract-OCR\`
+
+#### Budowanie
+
+```bat
+scripts\build-windows.bat
+```
+
+Skrypt automatycznie:
+1. Kompiluje `biedrona.py` do `.exe` przez PyInstaller → `python_dist\`
+2. Kopiuje Tesseracta + DLL-e + `pol.traineddata` → `tesseract_dist\`
+3. Instaluje zależności npm
+4. Buduje instalator NSIS (`.exe`)
+
+Wynik w katalogu `dist\`.
+
+---
 
 ## OCR cache
 

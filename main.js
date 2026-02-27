@@ -6,19 +6,28 @@ const { spawn, execSync } = require('child_process');
 let mainWindow;
 let pythonProcess = null;
 
-const CONFIG_PATH = path.join(__dirname, 'config.json');
+// In packaged mode, user data (config, cache, gazetki) goes to userData dir
+// In dev mode, everything stays in __dirname
+function getDataDir() {
+  return app.isPackaged ? app.getPath('userData') : __dirname;
+}
+
+function getConfigPath() {
+  return path.join(getDataDir(), 'config.json');
+}
 
 function loadConfig() {
   try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    const cfgPath = getConfigPath();
+    if (fs.existsSync(cfgPath)) {
+      return JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
     }
   } catch {}
   return { discordWebhookUrl: '', discordEnabled: false };
 }
 
 function saveConfig(config) {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2), 'utf-8');
 }
 
 // Detect Python command
@@ -48,8 +57,8 @@ protocol.registerSchemesAsPrivileged([
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
+    width: 1140,
+    height: 800,
     minWidth: 900,
     minHeight: 600,
     frame: false,
@@ -123,29 +132,65 @@ ipcMain.handle('start-search', async (_event, { keyword, discordEnabled }) => {
     pythonProcess = null;
   }
 
-  const pythonCmd = getPythonCmd();
-  if (!pythonCmd) {
-    mainWindow.webContents.send('search-event', {
-      type: 'error',
-      message: 'Python nie został znaleziony. Zainstaluj Python 3.',
-    });
-    mainWindow.webContents.send('search-event', { type: 'done', found_count: 0 });
-    return;
-  }
+  const dataDir = getDataDir();
+  let spawnCmd, spawnArgs;
 
-  const scriptPath = path.join(__dirname, 'biedrona.py');
-  const args = ['-u', scriptPath, '--gui', '--keyword', keyword];
+  if (app.isPackaged) {
+    // Packaged mode — use PyInstaller binary from extraResources
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    const binaryPath = path.join(process.resourcesPath, 'python_dist', 'biedrona' + ext);
+
+    if (!fs.existsSync(binaryPath)) {
+      mainWindow.webContents.send('search-event', {
+        type: 'error',
+        message: 'Nie znaleziono silnika wyszukiwania (biedrona binary).',
+      });
+      mainWindow.webContents.send('search-event', { type: 'done', found_count: 0 });
+      return;
+    }
+
+    spawnCmd = binaryPath;
+    spawnArgs = ['--gui', '--keyword', keyword];
+  } else {
+    // Dev mode — use system Python
+    const pythonCmd = getPythonCmd();
+    if (!pythonCmd) {
+      mainWindow.webContents.send('search-event', {
+        type: 'error',
+        message: 'Python nie został znaleziony. Zainstaluj Python 3.',
+      });
+      mainWindow.webContents.send('search-event', { type: 'done', found_count: 0 });
+      return;
+    }
+
+    const scriptPath = path.join(__dirname, 'biedrona.py');
+    spawnCmd = pythonCmd;
+    spawnArgs = ['-u', scriptPath, '--gui', '--keyword', keyword];
+  }
 
   const config = loadConfig();
   const envVars = { ...process.env, PYTHONUNBUFFERED: '1' };
 
+  // Tell the Python process where to store data (gazetki, cache)
+  envVars.BIEDRONA_DATA_DIR = dataDir;
+
+  // Point to bundled Tesseract if available
+  if (app.isPackaged) {
+    const tessDir = path.join(process.resourcesPath, 'tesseract_dist');
+    if (fs.existsSync(tessDir)) {
+      const tessExt = process.platform === 'win32' ? '.exe' : '';
+      envVars.TESSERACT_CMD = path.join(tessDir, 'tesseract' + tessExt);
+      envVars.TESSDATA_PREFIX = path.join(tessDir, 'tessdata');
+    }
+  }
+
   if (discordEnabled && config.discordWebhookUrl) {
-    args.push('--discord');
+    spawnArgs.push('--discord');
     envVars.DISCORD_WEBHOOK_URL = config.discordWebhookUrl;
   }
 
-  pythonProcess = spawn(pythonCmd, args, {
-    cwd: __dirname,
+  pythonProcess = spawn(spawnCmd, spawnArgs, {
+    cwd: dataDir,
     env: envVars,
   });
 

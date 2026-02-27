@@ -4,6 +4,14 @@ node_modules/
 config.json
 .env
 
+# Build outputs
+python_dist/
+tesseract_dist/
+build_py/
+dist_py/
+dist/
+*.spec
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

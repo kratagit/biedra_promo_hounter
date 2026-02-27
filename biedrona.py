@@ -18,15 +18,31 @@ import argparse
 # --- KONFIGURACJA ---
 load_dotenv() 
 
-if platform.system() == "Windows":
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-else:
-    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+def get_tesseract_cmd():
+    """Detect Tesseract: bundled (env var) > system default."""
+    # 1. Check env var set by Electron in packaged mode
+    env_cmd = os.environ.get('TESSERACT_CMD')
+    if env_cmd and os.path.isfile(env_cmd):
+        tessdata = os.environ.get('TESSDATA_PREFIX')
+        if tessdata:
+            os.environ['TESSDATA_PREFIX'] = tessdata
+        if platform.system() != "Windows":
+            os.chmod(env_cmd, 0o755)
+        return env_cmd
+    # 2. Fallback to system Tesseract
+    if platform.system() == "Windows":
+        return r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    return '/usr/bin/tesseract'
+
+pytesseract.pytesseract.tesseract_cmd = get_tesseract_cmd()
+
+# Use BIEDRONA_DATA_DIR if set (packaged Electron), otherwise script directory
+DATA_DIR = os.environ.get('BIEDRONA_DATA_DIR', os.path.dirname(os.path.abspath(__file__)))
 
 KEYWORD_TO_FIND = "" # Zostanie ustawione przez użytkownika
-SAVE_FOLDER = "gazetki"
+SAVE_FOLDER = os.path.join(DATA_DIR, "gazetki")
 MAX_WORKERS = 5 # Utrzymujemy 5 wątków (każdy robi teraz 2x więcej pracy, więc nie zwiększamy)
-OCR_CACHE_DB = "ocr_cache.db"
+OCR_CACHE_DB = os.path.join(DATA_DIR, "ocr_cache.db")
 
 DISCORD_URL = os.getenv("DISCORD_WEBHOOK_URL")
 MAX_DISCORD_SIZE_BYTES = 7.5 * 1024 * 1024 

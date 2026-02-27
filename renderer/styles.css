@@ -68,7 +68,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 0 8px 0 16px;
-  z-index: 100;
+  z-index: 300;
   background: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -375,30 +375,6 @@ html, body {
   transform: translateX(3px);
 }
 
-/* ----- Discord Toggle ----- */
-.discord-toggle-container {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  animation: fadeSlideDown 0.6s ease 0.5s both;
-}
-
-.toggle-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
-}
-
-.discord-icon {
-  width: 16px;
-  height: 16px;
-  opacity: 0.7;
-}
-
 .toggle-switch {
   position: relative;
   width: 40px;
@@ -465,10 +441,6 @@ html, body {
   font-size: 12.5px;
   color: var(--text-muted);
   letter-spacing: 0.3px;
-}
-
-.feature-icon {
-  font-size: 14px;
 }
 
 .feature-dot {
@@ -599,6 +571,25 @@ html, body {
 /* ----- Results Section ----- */
 .section-results {
   padding: 24px 32px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.section-results::-webkit-scrollbar {
+  width: 6px;
+}
+
+.section-results::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.section-results::-webkit-scrollbar-thumb {
+  background: rgba(227, 6, 19, 0.2);
+  border-radius: 3px;
+}
+
+.section-results::-webkit-scrollbar-thumb:hover {
+  background: rgba(227, 6, 19, 0.4);
 }
 
 .results-header {
@@ -644,11 +635,10 @@ html, body {
 
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, 200px);
   gap: 16px;
-  flex: 1;
-  overflow-y: auto;
   padding-bottom: 24px;
+  justify-content: center;
   align-content: start;
 }
 
@@ -748,6 +738,30 @@ html, body {
   animation: fadeIn 0.25s ease;
 }
 
+/* When lightbox is open, make titlebar transparent and hide nav/logo */
+.lightbox.active ~ .app-content .titlebar,
+body:has(.lightbox.active) .titlebar {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: none;
+  box-shadow: none;
+}
+
+body:has(.lightbox.active) .titlebar .titlebar-drag .titlebar-nav,
+body:has(.lightbox.active) .titlebar .titlebar-drag .titlebar-logo {
+  opacity: 0;
+  pointer-events: none;
+}
+
+body:has(.lightbox.active) .titlebar .titlebar-btn svg {
+  stroke: rgba(255, 255, 255, 0.7);
+}
+
+body:has(.lightbox.active) .titlebar .titlebar-btn:hover svg {
+  stroke: #fff;
+}
+
 .lightbox-backdrop {
   position: absolute;
   inset: 0;
@@ -757,19 +771,30 @@ html, body {
 
 .lightbox-content {
   position: relative;
-  max-width: 90vw;
-  max-height: 90vh;
+  z-index: 1;
+  max-width: 95vw;
+  max-height: 95vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   animation: lightboxZoom 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: visible;
+}
+
+.lightbox-img-wrapper {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .lightbox-img {
-  max-width: 100%;
-  max-height: 85vh;
-  border-radius: var(--radius-md);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  max-width: 95vw;
+  max-height: 88vh;
+  display: block;
+  transform-origin: center center;
+  transition: transform 0.15s ease;
+  cursor: grab;
 }
 
 .lightbox-info {
@@ -781,32 +806,35 @@ html, body {
 
 .lightbox-close {
   position: absolute;
-  top: -40px;
-  right: 0;
-  width: 32px;
-  height: 32px;
+  top: -20px;
+  right: -20px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
   cursor: pointer;
   transition: var(--transition-fast);
+  z-index: 10;
 }
 
 .lightbox-close svg {
   width: 14px;
   height: 14px;
-  stroke: var(--text-secondary);
+  stroke: #fff;
+  stroke-width: 2.5;
 }
 
 .lightbox-close:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(227, 6, 19, 0.8);
+  border-color: rgba(227, 6, 19, 1);
 }
 
 .lightbox-close:hover svg {
-  stroke: var(--text-primary);
+  stroke: #fff;
 }
 
 .lightbox-nav {
@@ -818,7 +846,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
   cursor: pointer;
@@ -829,11 +857,12 @@ html, body {
 .lightbox-nav svg {
   width: 16px;
   height: 16px;
-  stroke: var(--text-secondary);
+  stroke: #fff;
+  stroke-width: 2.5;
 }
 
 .lightbox-nav:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.7);
   border-color: rgba(255, 255, 255, 0.4);
 }
 

@@ -14,7 +14,6 @@
 
   const searchInput = document.getElementById('search-input');
   const searchBtn = document.getElementById('search-btn');
-  const discordToggle = document.getElementById('discord-toggle');
 
   const progressPercent = document.getElementById('progress-percent');
   const progressTitle = document.getElementById('progress-title');
@@ -149,7 +148,7 @@
 
     showSection('progress');
     if (window.particleSystem) window.particleSystem.setSearching(true);
-    window.api.startSearch(keyword, discordToggle.checked);
+    window.api.startSearch(keyword, settingsDiscordToggle ? settingsDiscordToggle.checked : false);
   }
 
   searchBtn.addEventListener('click', startSearch);
@@ -211,9 +210,49 @@
   }
 
   // === Lightbox ===
+  let lightboxZoom = 1;
+  let lightboxPanX = 0;
+  let lightboxPanY = 0;
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let panStartX = 0;
+  let panStartY = 0;
+  const ZOOM_MIN = 1;
+  const ZOOM_MAX = 8;
+  const ZOOM_STEP = 0.2;
+
+  function clampPan() {
+    // Clamp pan so the image edge never passes the center of the viewport
+    const imgRect = lightboxImg.getBoundingClientRect();
+    const wrapRect = lightboxImgWrapper.getBoundingClientRect();
+    // Half of the scaled image size in translate-coordinate space
+    const halfW = (imgRect.width / lightboxZoom) * 0.5;
+    const halfH = (imgRect.height / lightboxZoom) * 0.5;
+    // Max pan = half image - half wrapper / zoom (edge stays at center)
+    const maxPanX = Math.max(0, halfW - (wrapRect.width / lightboxZoom) * 0.5);
+    const maxPanY = Math.max(0, halfH - (wrapRect.height / lightboxZoom) * 0.5);
+    lightboxPanX = Math.min(maxPanX, Math.max(-maxPanX, lightboxPanX));
+    lightboxPanY = Math.min(maxPanY, Math.max(-maxPanY, lightboxPanY));
+  }
+
+  function updateLightboxTransform() {
+    clampPan();
+    lightboxImg.style.transform = `scale(${lightboxZoom}) translate(${lightboxPanX}px, ${lightboxPanY}px)`;
+  }
+
+  function resetLightboxZoom() {
+    lightboxZoom = 1;
+    lightboxPanX = 0;
+    lightboxPanY = 0;
+    updateLightboxTransform();
+    lightboxImg.style.cursor = 'grab';
+  }
+
   function openLightbox(index) {
     if (index < 0 || index >= foundImages.length) return;
     currentLightboxIndex = index;
+    resetLightboxZoom();
 
     const img = foundImages[index];
     lightboxImg.src = 'local-image://' + img.path;
@@ -226,6 +265,7 @@
   function closeLightbox() {
     lightbox.classList.remove('active');
     currentLightboxIndex = -1;
+    resetLightboxZoom();
   }
 
   function updateLightboxNav() {
@@ -252,6 +292,76 @@
     if (e.key === 'ArrowLeft' && currentLightboxIndex > 0) openLightbox(currentLightboxIndex - 1);
     if (e.key === 'ArrowRight' && currentLightboxIndex < foundImages.length - 1) openLightbox(currentLightboxIndex + 1);
   });
+
+  // Lightbox zoom with mouse wheel
+  const lightboxImgWrapper = document.getElementById('lightbox-img-wrapper');
+  if (lightboxImgWrapper) {
+    lightboxImgWrapper.addEventListener('wheel', (e) => {
+      if (!lightbox.classList.contains('active')) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+      const prevZoom = lightboxZoom;
+      lightboxZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, lightboxZoom + delta));
+
+      // If zooming back to 1, reset pan
+      if (lightboxZoom <= 1) {
+        lightboxPanX = 0;
+        lightboxPanY = 0;
+      } else {
+        // Scale pan proportionally
+        const ratio = lightboxZoom / prevZoom;
+        lightboxPanX *= ratio;
+        lightboxPanY *= ratio;
+      }
+
+      lightboxImg.style.cursor = lightboxZoom > 1 ? 'grab' : 'grab';
+      updateLightboxTransform();
+    }, { passive: false });
+
+    // Drag to pan when zoomed
+    lightboxImgWrapper.addEventListener('mousedown', (e) => {
+      if (lightboxZoom <= 1) return;
+      e.preventDefault();
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      panStartX = lightboxPanX;
+      panStartY = lightboxPanY;
+      lightboxImg.style.cursor = 'grabbing';
+      lightboxImg.style.transition = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = (e.clientX - dragStartX) / lightboxZoom;
+      const dy = (e.clientY - dragStartY) / lightboxZoom;
+      lightboxPanX = panStartX + dx;
+      lightboxPanY = panStartY + dy;
+      updateLightboxTransform();
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!isDragging) return;
+      isDragging = false;
+      lightboxImg.style.cursor = lightboxZoom > 1 ? 'grab' : 'grab';
+      lightboxImg.style.transition = '';
+      clampPan();
+      updateLightboxTransform();
+    });
+
+    // Double-click to reset zoom
+    lightboxImgWrapper.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      if (lightboxZoom > 1) {
+        resetLightboxZoom();
+      } else {
+        lightboxZoom = 3;
+        lightboxPanX = 0;
+        lightboxPanY = 0;
+        updateLightboxTransform();
+      }
+    });
+  }
 
   // === Finish Search ===
   function finishSearch(count) {
@@ -331,7 +441,6 @@
         webhookInput.value = config.discordWebhookUrl;
       }
       if (config.discordEnabled) {
-        discordToggle.checked = true;
         if (settingsDiscordToggle) settingsDiscordToggle.checked = true;
       }
       if (config.thumbnailWidth) {
@@ -346,20 +455,15 @@
   async function saveAppConfig() {
     const config = {
       discordWebhookUrl: webhookInput ? webhookInput.value.trim() : '',
-      discordEnabled: discordToggle.checked,
+      discordEnabled: settingsDiscordToggle ? settingsDiscordToggle.checked : false,
       thumbnailWidth: thumbnailWidth,
     };
     await window.api.saveConfig(config);
   }
 
-  // Sync settings toggle with search-page toggle
+  // Save config when discord toggle changes
   if (settingsDiscordToggle) {
     settingsDiscordToggle.addEventListener('change', () => {
-      discordToggle.checked = settingsDiscordToggle.checked;
-      saveAppConfig();
-    });
-    discordToggle.addEventListener('change', () => {
-      settingsDiscordToggle.checked = discordToggle.checked;
       saveAppConfig();
     });
   }
