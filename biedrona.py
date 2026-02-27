@@ -28,11 +28,18 @@ def get_tesseract_cmd():
             os.environ['TESSDATA_PREFIX'] = tessdata
         if platform.system() != "Windows":
             os.chmod(env_cmd, 0o755)
+        print(f"[Tesseract] Using bundled: {env_cmd}", file=sys.stderr)
+        print(f"[Tesseract] TESSDATA_PREFIX: {tessdata}", file=sys.stderr)
         return env_cmd
     # 2. Fallback to system Tesseract
     if platform.system() == "Windows":
-        return r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    return '/usr/bin/tesseract'
+        fallback = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    else:
+        fallback = '/usr/bin/tesseract'
+    print(f"[Tesseract] Using system fallback: {fallback}", file=sys.stderr)
+    if env_cmd:
+        print(f"[Tesseract] TESSERACT_CMD was set to '{env_cmd}' but file not found!", file=sys.stderr)
+    return fallback
 
 pytesseract.pytesseract.tesseract_cmd = get_tesseract_cmd()
 
