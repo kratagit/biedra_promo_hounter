@@ -36,10 +36,28 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Tesseract
+      - name: Install Tesseract (build from source with CPU optimizations)
         run: |
           sudo apt-get update
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-pol
+          sudo apt-get install -y \
+            cmake g++ make pkg-config \
+            libleptonica-dev libpng-dev libjpeg-dev libtiff-dev libwebp-dev \
+            libarchive-dev libcurl4-openssl-dev \
+            tesseract-ocr-pol
+
+          git clone --depth 1 --branch 5.5.0 https://github.com/tesseract-ocr/tesseract.git /tmp/tesseract-src
+          cd /tmp/tesseract-src
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="-O3 -march=x86-64-v2 -mtune=generic -fopenmp" \
+            -DCMAKE_C_FLAGS="-O3 -march=x86-64-v2 -mtune=generic -fopenmp" \
+            -DOPENMP_BUILD=ON \
+            -DBUILD_TRAINING_TOOLS=OFF \
+            -DDISABLED_LEGACY_ENGINE=ON
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
 
       - name: Install Python dependencies & PyInstaller
         run: |
@@ -76,6 +94,10 @@ jobs:
             cp "$lib" tesseract_dist/lib/ 2>/dev/null || true
           done
 
+          # Also bundle libgomp (OpenMP runtime) for multi-threaded OCR
+          GOMP=$(ldconfig -p | grep libgomp | head -1 | awk '{print $NF}')
+          if [ -n "$GOMP" ]; then cp "$GOMP" tesseract_dist/lib/; fi
+
           echo "Bundled libraries:"
           ls -la tesseract_dist/lib/
 
@@ -87,7 +109,7 @@ jobs:
           WRAPPER
           chmod +x tesseract_dist/tesseract
 
-          for td in /usr/share/tesseract-ocr/5/tessdata /usr/share/tesseract-ocr/4.00/tessdata /usr/share/tessdata; do
+          for td in /usr/local/share/tessdata /usr/share/tesseract-ocr/5/tessdata /usr/share/tesseract-ocr/4.00/tessdata /usr/share/tessdata; do
             if [ -f "$td/pol.traineddata" ]; then
               cp "$td/pol.traineddata" tesseract_dist/tessdata/
               cp "$td/osd.traineddata" tesseract_dist/tessdata/ 2>/dev/null || true
