@@ -180,8 +180,8 @@ ipcMain.handle('start-search', async (_event, { keyword, discordEnabled }) => {
     if (fs.existsSync(tessDir)) {
       const tessExt = process.platform === 'win32' ? '.exe' : '';
       envVars.TESSERACT_CMD = path.join(tessDir, 'tesseract' + tessExt);
-      // TESSDATA_PREFIX must point to the folder CONTAINING the tessdata/ subfolder
-      envVars.TESSDATA_PREFIX = path.join(tessDir, 'tessdata');
+      // TESSDATA_PREFIX must point to the parent of tessdata/ — Tesseract appends /tessdata/ itself
+      envVars.TESSDATA_PREFIX = tessDir;
     }
   }
 

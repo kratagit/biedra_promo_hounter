@@ -23,13 +23,20 @@ def get_tesseract_cmd():
     # 1. Check env var set by Electron in packaged mode
     env_cmd = os.environ.get('TESSERACT_CMD')
     if env_cmd and os.path.isfile(env_cmd):
-        tessdata = os.environ.get('TESSDATA_PREFIX')
-        if tessdata:
-            os.environ['TESSDATA_PREFIX'] = tessdata
+        tessdata_prefix = os.environ.get('TESSDATA_PREFIX')
+        if tessdata_prefix:
+            # Ensure TESSDATA_PREFIX points to the parent containing tessdata/
+            os.environ['TESSDATA_PREFIX'] = tessdata_prefix
+            tessdata_dir = os.path.join(tessdata_prefix, 'tessdata')
+            if os.path.isdir(tessdata_dir):
+                files = os.listdir(tessdata_dir)
+                print(f"[Tesseract] tessdata/ contains: {files}", file=sys.stderr)
+            else:
+                print(f"[Tesseract] WARNING: tessdata dir not found at {tessdata_dir}", file=sys.stderr)
         if platform.system() != "Windows":
             os.chmod(env_cmd, 0o755)
         print(f"[Tesseract] Using bundled: {env_cmd}", file=sys.stderr)
-        print(f"[Tesseract] TESSDATA_PREFIX: {tessdata}", file=sys.stderr)
+        print(f"[Tesseract] TESSDATA_PREFIX: {tessdata_prefix}", file=sys.stderr)
         return env_cmd
     # 2. Fallback to system Tesseract
     if platform.system() == "Windows":
@@ -410,7 +417,8 @@ def process_page(task_data):
         full_text = text_std + " " + text_red
 
         return full_text, content
-    except Exception:
+    except Exception as e:
+        print(f"[OCR ERROR] {url}: {e}", file=sys.stderr)
         return None, None
 
 def emit(event_type, **kwargs):
