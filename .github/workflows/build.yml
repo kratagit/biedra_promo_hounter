@@ -1,0 +1,174 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Tesseract
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-pol
+
+      - name: Install Python dependencies & PyInstaller
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Python binary
+        run: |
+          pyinstaller \
+            --distpath dist_py \
+            --workpath build_py \
+            --noconfirm \
+            --onedir \
+            --name biedrona \
+            --hidden-import=PIL \
+            --hidden-import=PIL.Image \
+            --hidden-import=pytesseract \
+            biedrona.py
+          cp -r dist_py/biedrona python_dist
+
+      - name: Bundle Tesseract
+        run: |
+          mkdir -p tesseract_dist/tessdata tesseract_dist/lib
+
+          TESS_BIN=$(which tesseract)
+          cp "$TESS_BIN" tesseract_dist/tesseract.bin
+
+          # Copy shared libraries
+          ldd "$TESS_BIN" | grep "=> /" | awk '{print $3}' | while read lib; do
+            cp "$lib" tesseract_dist/lib/ 2>/dev/null || true
+          done
+
+          # Wrapper script for LD_LIBRARY_PATH
+          cat > tesseract_dist/tesseract << 'WRAPPER'
+          #!/bin/bash
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
+          exec "$DIR/tesseract.bin" "$@"
+          WRAPPER
+          chmod +x tesseract_dist/tesseract
+
+          # Copy Polish tessdata
+          for td in /usr/share/tesseract-ocr/5/tessdata /usr/share/tesseract-ocr/4.00/tessdata /usr/share/tessdata; do
+            if [ -f "$td/pol.traineddata" ]; then
+              cp "$td/pol.traineddata" tesseract_dist/tessdata/
+              cp "$td/osd.traineddata" tesseract_dist/tessdata/ 2>/dev/null || true
+              break
+            fi
+          done
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Build Electron (Linux)
+        run: npx electron-builder --linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: dist/*.AppImage
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Tesseract
+        run: |
+          choco install tesseract --params "/Languages:pol" -y
+        shell: cmd
+
+      - name: Install Python dependencies & PyInstaller
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Python binary
+        run: |
+          pyinstaller --distpath dist_py --workpath build_py --noconfirm --onedir --name biedrona --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=pytesseract biedrona.py
+          xcopy dist_py\biedrona python_dist\ /E /I /Q
+        shell: cmd
+
+      - name: Bundle Tesseract
+        run: |
+          $tessPath = "C:\Program Files\Tesseract-OCR"
+          New-Item -ItemType Directory -Force -Path tesseract_dist\tessdata | Out-Null
+
+          # Copy tesseract binary and DLLs
+          Copy-Item "$tessPath\tesseract.exe" tesseract_dist\
+          Get-ChildItem "$tessPath\*.dll" | ForEach-Object { Copy-Item $_.FullName tesseract_dist\ }
+
+          # Copy Polish tessdata
+          if (Test-Path "$tessPath\tessdata\pol.traineddata") {
+            Copy-Item "$tessPath\tessdata\pol.traineddata" tesseract_dist\tessdata\
+          }
+          if (Test-Path "$tessPath\tessdata\osd.traineddata") {
+            Copy-Item "$tessPath\tessdata\osd.traineddata" tesseract_dist\tessdata\
+          }
+        shell: pwsh
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Build Electron (Windows)
+        run: npx electron-builder --win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/*.exe
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/linux-build/*
+            artifacts/windows-build/*
+          generate_release_notes: true

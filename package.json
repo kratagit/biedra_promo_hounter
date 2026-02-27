@@ -2,6 +2,10 @@
   "name": "biedronka-promo-hunter",
   "version": "1.0.0",
   "description": "Wyszukiwarka promocji w gazetkach Biedronki",
+  "author": {
+    "name": "krata",
+    "email": "krata@protonmail.com"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -29,11 +33,11 @@
       }
     ],
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": ["AppImage"],
       "category": "Utility"
     },
     "win": {
-      "target": "nsis"
+      "target": "portable"
     }
   },
   "devDependencies": {

@@ -80,6 +80,7 @@ call npx electron-builder --win
 echo.
 echo === BUILD ZAKONCZONY ===
 echo Wynik znajdziesz w katalogu: dist\
+echo Plik portable (bez instalacji):
 dir /b dist\*.exe 2>nul
 
 endlocal

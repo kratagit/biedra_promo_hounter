@@ -7,6 +7,20 @@ cd "$PROJECT_DIR"
 
 echo "=== Biedronka Promo Hunter — Build Linux ==="
 
+# ---------- 0. Activate venv ----------
+VENV_DIR="$PROJECT_DIR/.venv"
+if [ -f "$VENV_DIR/bin/activate" ]; then
+    echo "[0] Aktywuję venv (.venv)..."
+    source "$VENV_DIR/bin/activate"
+elif [ -f "$PROJECT_DIR/venv/bin/activate" ]; then
+    echo "[0] Aktywuję venv (venv)..."
+    source "$PROJECT_DIR/venv/bin/activate"
+else
+    echo "  ✗ Nie znaleziono virtualenv (.venv/ ani venv/)!"
+    echo "    Utwórz: python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
+    exit 1
+fi
+
 # ---------- 1. Python binary (PyInstaller) ----------
 echo ""
 echo "[1/4] Budowanie binarki Pythona (PyInstaller)..."

@@ -40,7 +40,7 @@ Skrypt automatycznie:
 1. Kompiluje `biedrona.py` do binarki przez PyInstaller → `python_dist/`
 2. Kopiuje Tesseracta z bibliotekami + `pol.traineddata` → `tesseract_dist/`
 3. Instaluje zależności npm
-4. Buduje aplikację Electron (`AppImage` + `.deb`)
+4. Buduje aplikację Electron (`AppImage`)
 
 Wynik w katalogu `dist/`.
 
@@ -64,9 +64,23 @@ Skrypt automatycznie:
 1. Kompiluje `biedrona.py` do `.exe` przez PyInstaller → `python_dist\`
 2. Kopiuje Tesseracta + DLL-e + `pol.traineddata` → `tesseract_dist\`
 3. Instaluje zależności npm
-4. Buduje instalator NSIS (`.exe`)
+4. Buduje portable `.exe` (bez instalacji)
 
 Wynik w katalogu `dist\`.
+
+---
+
+### GitHub Actions (automatycznie)
+
+Build odpala się automatycznie po pushu taga `v*` (np. `v1.0.0`).
+Można też odpalić ręcznie z zakładki Actions → Build → "Run workflow".
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Workflow buduje jednocześnie Linux (AppImage) i Windows (portable .exe), a wyniki publikuje jako GitHub Release z plikami do pobrania.
 
 ---
 
