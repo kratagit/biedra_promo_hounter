@@ -439,23 +439,47 @@ def gui_main(keyword, discord_enabled):
 
     all_found = []
     found_count = 0
+    processed = 0
 
-    # Search in cache
-    emit("status", message="Przeszukuję indeks cache...")
-    cached_hits = get_cached_hits(conn, cached_tasks, KEYWORD_TO_FIND)
-    for task, leaflet_name, page_number in cached_hits:
-        saved_path = download_and_save_image(task)
-        if saved_path:
-            found_count += 1
-            all_found.append(saved_path)
-            abs_path = os.path.abspath(saved_path)
-            emit("found", path=abs_path, leaflet_name=leaflet_name, page_number=int(page_number))
+    emit("progress", current=0, total=total_pages, leaflet="", page=0)
+
+    # Search in cache — with per-chunk progress
+    if cached_tasks:
+        emit("status", message="Przeszukuję indeks cache...")
+        # Build lookup for cached tasks
+        task_by_url = {task["url"]: task for task in cached_tasks}
+        match_query = build_fts_match_query(KEYWORD_TO_FIND)
+        cached_hit_urls = set()
+
+        all_urls = list(task_by_url.keys())
+        cache_chunk_size = max(1, len(all_urls) // 20)  # ~20 progress updates for cache
+        for urls_chunk in chunked(all_urls, size=cache_chunk_size):
+            placeholders = ",".join(["?"] * len(urls_chunk))
+            query = f"""
+                SELECT image_url, leaflet_name, page_number
+                FROM ocr_fts
+                WHERE ocr_fts MATCH ? AND image_url IN ({placeholders})
+            """
+            rows = conn.execute(query, [match_query, *urls_chunk]).fetchall()
+            for image_url, leaflet_name, page_number in rows:
+                task = task_by_url.get(image_url)
+                if task:
+                    cached_hit_urls.add(image_url)
+                    saved_path = download_and_save_image(task)
+                    if saved_path:
+                        found_count += 1
+                        all_found.append(saved_path)
+                        abs_path = os.path.abspath(saved_path)
+                        emit("found", path=abs_path, leaflet_name=leaflet_name, page_number=int(page_number))
+
+            # Update progress after each chunk
+            processed += len(urls_chunk)
+            emit("progress", current=processed, total=total_pages,
+                 leaflet="cache", page=0)
 
     # OCR for uncached pages
-    total_uncached = len(uncached_tasks)
-    if total_uncached > 0:
-        emit("progress", current=0, total=total_uncached, leaflet="", page=0)
-        processed = 0
+    if uncached_tasks:
+        emit("status", message=f"OCR: 0 / {len(uncached_tasks)} nowych stron...")
         writes_since_commit = 0
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -464,7 +488,7 @@ def gui_main(keyword, discord_enabled):
             for future in as_completed(future_to_task):
                 task = future_to_task[future]
                 processed += 1
-                emit("progress", current=processed, total=total_uncached,
+                emit("progress", current=processed, total=total_pages,
                      leaflet=task['leaflet_name'][:30], page=task['page_number'])
 
                 ocr_text, image_bytes = future.result()

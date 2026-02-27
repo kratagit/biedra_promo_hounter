@@ -21,6 +21,10 @@ class ParticleSystem {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.running = true;
     this.breathPhase = 0;
+    this.spinSpeed = 0.0005;
+    this.targetSpinSpeed = 0.0005;
+    this.idleSpinSpeed = 0.0005;
+    this.searchSpinSpeed = 0.025;
 
     this._resize = this.resize.bind(this);
     this._mouseMove = this.onMouseMove.bind(this);
@@ -196,9 +200,12 @@ class ParticleSystem {
     const focalLength = 700;
     const breath = 1 + 0.03 * Math.sin(this.breathPhase * 1.5);
 
-    this.targetRotY += 0.0005;
+    // Smoothly lerp spin speed toward target
+    this.spinSpeed += (this.targetSpinSpeed - this.spinSpeed) * 0.008;
+    this.targetRotY += this.spinSpeed;
     this.targetRotX = this.mouseY * 0.06;
-    this.rotationY += (this.targetRotY - this.rotationY + this.mouseX * 0.08) * 0.01;
+    const mouseInfluence = Math.max(0.01, 0.08 - this.spinSpeed * 2);
+    this.rotationY += (this.targetRotY - this.rotationY + this.mouseX * mouseInfluence) * 0.02;
     this.rotationX += (this.targetRotX - this.rotationX) * 0.01;
 
     const projected = [];
@@ -304,6 +311,10 @@ class ParticleSystem {
     this.drawSphere();
   }
 
+  setSearching(active) {
+    this.targetSpinSpeed = active ? this.searchSpinSpeed : this.idleSpinSpeed;
+  }
+
   destroy() {
     this.running = false;
     window.removeEventListener('resize', this._resize);
@@ -313,3 +324,4 @@ class ParticleSystem {
 
 const particleCanvas = document.getElementById('particle-canvas');
 const particleSystem = new ParticleSystem(particleCanvas);
+window.particleSystem = particleSystem;

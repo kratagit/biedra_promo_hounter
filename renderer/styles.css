@@ -1062,9 +1062,74 @@ html, body {
   box-shadow: 0 4px 12px rgba(227, 6, 19, 0.3);
 }
 
+.settings-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 200px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  outline: none;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.settings-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #c53030 100%);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(227, 6, 19, 0.3);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.settings-range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 3px 10px rgba(227, 6, 19, 0.4);
+}
+
 .settings-info {
   font-size: 11.5px;
   color: var(--text-muted);
   text-align: center;
   margin-top: 8px;
+}
+
+/* ----- Toast Notification ----- */
+.toast-notification {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: rgba(30, 30, 30, 0.92);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 12px 24px;
+  border-radius: 999px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0;
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease;
+  max-width: 90vw;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.toast-notification.toast-show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast-notification.toast-hide {
+  opacity: 0;
+  transform: translateX(-50%) translateY(80px);
 }

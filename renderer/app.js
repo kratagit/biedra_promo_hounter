@@ -42,6 +42,7 @@
   let currentLightboxIndex = -1;
   let isSearching = false;
   let currentKeyword = '';
+  let thumbnailWidth = 300; // default thumbnail width in px
 
   // === SVG Gradient for Progress Ring (inject into SVG) ===
   const ringSvg = document.querySelector('.ring-svg');
@@ -91,11 +92,34 @@
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const section = link.dataset.section;
-      if (section === 'results' && foundImages.length === 0 && !isSearching) return;
-      if (section === 'search' && isSearching) return;
+      if (isSearching) {
+        showToast('Poczekaj aż wyszukiwanie się zakończy lub zatrzymaj je przyciskiem „Zatrzymaj”.');
+        return;
+      }
+      if (section === 'results' && foundImages.length === 0) return;
       showSection(section);
     });
   });
+
+  // === Toast notification ===
+  let toastTimeout = null;
+  function showToast(message) {
+    let toast = document.getElementById('search-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'search-toast';
+      toast.className = 'toast-notification';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.remove('toast-hide');
+    toast.classList.add('toast-show');
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+      toast.classList.remove('toast-show');
+      toast.classList.add('toast-hide');
+    }, 3500);
+  }
 
   // === Title Bar Controls ===
   document.getElementById('btn-minimize').addEventListener('click', () => window.api.minimizeWindow());
@@ -119,11 +143,12 @@
     if (resultsKeyword) resultsKeyword.textContent = keyword;
 
     // Reset progress
-    setProgress(0, 1);
+    setProgress(0, 0);
     progressTitle.textContent = 'Skanowanie gazetek...';
     progressDetail.textContent = 'Inicjalizacja...';
 
     showSection('progress');
+    if (window.particleSystem) window.particleSystem.setSearching(true);
     window.api.startSearch(keyword, discordToggle.checked);
   }
 
@@ -165,10 +190,10 @@
     card.className = 'gallery-card';
     card.style.animationDelay = `${Math.min(index * 0.05, 0.6)}s`;
 
-    const imgSrc = 'local-image://' + imagePath;
+    const thumbSrc = 'local-image://' + imagePath + '?thumb=' + thumbnailWidth;
 
     card.innerHTML = `
-      <img src="${imgSrc}" alt="Wynik ${resultNumber}" loading="lazy">
+      <img src="${thumbSrc}" alt="Wynik ${resultNumber}" loading="lazy">
       <div class="card-badge">${resultNumber}</div>
     `;
 
@@ -232,6 +257,7 @@
   function finishSearch(count) {
     isSearching = false;
     searchBtn.disabled = false;
+    if (window.particleSystem) window.particleSystem.setSearching(false);
 
     if (count > 0) {
       noResults.style.display = 'none';
@@ -245,16 +271,23 @@
 
   // === IPC Event Handling ===
   window.api.onSearchEvent((evt) => {
+    console.log('[search-event]', evt.type, evt);
     switch (evt.type) {
       case 'status':
         progressDetail.textContent = evt.message;
         break;
 
       case 'progress':
+        console.log(`[progress] ${evt.current}/${evt.total}`);
         setProgress(evt.current, evt.total);
-        progressTitle.textContent = `OCR: ${evt.current} / ${evt.total}`;
-        if (evt.leaflet) {
+        if (evt.leaflet === 'cache') {
+          progressTitle.textContent = `Cache: ${evt.current} / ${evt.total}`;
+          progressDetail.textContent = `Przeszukuję indeks cache...`;
+        } else if (evt.leaflet) {
+          progressTitle.textContent = `OCR: ${evt.current} / ${evt.total}`;
           progressDetail.textContent = `${evt.leaflet} — Strona ${evt.page}`;
+        } else {
+          progressTitle.textContent = `Postęp: ${evt.current} / ${evt.total}`;
         }
         break;
 
@@ -287,6 +320,8 @@
   const webhookSaveBtn = document.getElementById('settings-webhook-save');
   const webhookStatus = document.getElementById('webhook-status');
   const settingsDiscordToggle = document.getElementById('settings-discord-toggle');
+  const thumbQualitySlider = document.getElementById('settings-thumb-quality');
+  const thumbQualityLabel = document.getElementById('thumb-quality-label');
 
   // Load config from file on startup
   async function loadAppConfig() {
@@ -299,6 +334,11 @@
         discordToggle.checked = true;
         if (settingsDiscordToggle) settingsDiscordToggle.checked = true;
       }
+      if (config.thumbnailWidth) {
+        thumbnailWidth = config.thumbnailWidth;
+        if (thumbQualitySlider) thumbQualitySlider.value = thumbnailWidth;
+        if (thumbQualityLabel) thumbQualityLabel.textContent = thumbnailWidth + ' px';
+      }
     } catch {}
   }
   loadAppConfig();
@@ -307,6 +347,7 @@
     const config = {
       discordWebhookUrl: webhookInput ? webhookInput.value.trim() : '',
       discordEnabled: discordToggle.checked,
+      thumbnailWidth: thumbnailWidth,
     };
     await window.api.saveConfig(config);
   }
@@ -319,6 +360,18 @@
     });
     discordToggle.addEventListener('change', () => {
       settingsDiscordToggle.checked = discordToggle.checked;
+      saveAppConfig();
+    });
+  }
+
+  // Thumbnail quality slider
+  if (thumbQualitySlider) {
+    thumbQualitySlider.addEventListener('input', () => {
+      const val = parseInt(thumbQualitySlider.value, 10);
+      if (thumbQualityLabel) thumbQualityLabel.textContent = val + ' px';
+    });
+    thumbQualitySlider.addEventListener('change', () => {
+      thumbnailWidth = parseInt(thumbQualitySlider.value, 10);
       saveAppConfig();
     });
   }

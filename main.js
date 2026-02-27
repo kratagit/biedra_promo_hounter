@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execSync } = require('child_process');
@@ -66,15 +66,42 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Handle local-image:// protocol
+  // Handle local-image:// protocol with optional thumbnail resizing
+  // Usage: local-image:///path/to/image?thumb=300 for 300px wide thumbnail
   protocol.handle('local-image', (request) => {
-    // local-image:///absolute/path or local-image://absolute/path
-    let filePath = request.url.replace('local-image://', '');
-    filePath = decodeURIComponent(filePath);
-    // Ensure leading slash for absolute paths on Linux/Mac
+    let url = request.url.replace('local-image://', '');
+    let thumbWidth = 0;
+    const qIdx = url.indexOf('?thumb=');
+    if (qIdx !== -1) {
+      thumbWidth = parseInt(url.substring(qIdx + 7), 10) || 0;
+      url = url.substring(0, qIdx);
+    }
+    let filePath = decodeURIComponent(url);
     if (!filePath.startsWith('/') && process.platform !== 'win32') {
       filePath = '/' + filePath;
     }
+
+    if (thumbWidth > 0) {
+      try {
+        const img = nativeImage.createFromPath(filePath);
+        const size = img.getSize();
+        if (size.width > thumbWidth) {
+          const ratio = thumbWidth / size.width;
+          const resized = img.resize({
+            width: thumbWidth,
+            height: Math.round(size.height * ratio),
+            quality: 'good',
+          });
+          const jpegBuffer = resized.toJPEG(70);
+          return new Response(jpegBuffer, {
+            headers: { 'Content-Type': 'image/jpeg' },
+          });
+        }
+      } catch (e) {
+        // Fallback to full image on error
+      }
+    }
+
     return net.fetch('file://' + encodeURI(filePath));
   });
 
@@ -107,10 +134,10 @@ ipcMain.handle('start-search', async (_event, { keyword, discordEnabled }) => {
   }
 
   const scriptPath = path.join(__dirname, 'biedrona.py');
-  const args = [scriptPath, '--gui', '--keyword', keyword];
+  const args = ['-u', scriptPath, '--gui', '--keyword', keyword];
 
   const config = loadConfig();
-  const envVars = { ...process.env };
+  const envVars = { ...process.env, PYTHONUNBUFFERED: '1' };
 
   if (discordEnabled && config.discordWebhookUrl) {
     args.push('--discord');
