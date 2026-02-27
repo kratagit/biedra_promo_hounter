@@ -69,9 +69,15 @@ jobs:
           TESS_BIN=$(which tesseract)
           cp "$TESS_BIN" tesseract_dist/tesseract.bin
 
-          ldd "$TESS_BIN" | grep "=> /" | awk '{print $3}' | while read lib; do
+          # Only bundle Tesseract-specific libs, NOT core system libs
+          # Core libs (libc, libm, libpthread, libdl, ld-linux, etc.) must come from user's system
+          EXCLUDE_PATTERN="libc\.|libm\.|libpthread|libdl\.|librt\.|libresolv|libnss|libBrokenLocale|libSegFault|libthread_db|ld-linux|libstdc\+\+|libgcc_s|linux-vdso"
+          ldd "$TESS_BIN" | grep "=> /" | awk '{print $3}' | grep -vE "$EXCLUDE_PATTERN" | while read lib; do
             cp "$lib" tesseract_dist/lib/ 2>/dev/null || true
           done
+
+          echo "Bundled libraries:"
+          ls -la tesseract_dist/lib/
 
           cat > tesseract_dist/tesseract << 'WRAPPER'
           #!/bin/sh
