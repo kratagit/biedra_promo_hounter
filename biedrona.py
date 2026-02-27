@@ -435,6 +435,39 @@ def gui_main(keyword, discord_enabled):
     if not discord_enabled:
         DISCORD_URL = None
 
+    # --- Startup diagnostics ---
+    emit("status", message="Uruchamiam silnik wyszukiwania...")
+    diag = {
+        "platform": platform.system(),
+        "python": sys.version,
+        "cwd": os.getcwd(),
+        "DATA_DIR": DATA_DIR,
+        "SAVE_FOLDER": SAVE_FOLDER,
+        "tesseract_cmd": pytesseract.pytesseract.tesseract_cmd,
+        "TESSDATA_PREFIX": os.environ.get("TESSDATA_PREFIX", "(not set)"),
+    }
+    print(f"[DIAG] {json.dumps(diag, ensure_ascii=False)}", file=sys.stderr)
+
+    # Verify Tesseract is actually callable
+    tess_cmd = pytesseract.pytesseract.tesseract_cmd
+    if not os.path.isfile(tess_cmd):
+        emit("error", message=f"Tesseract nie znaleziony: {tess_cmd}")
+        emit("done", found_count=0)
+        return
+
+    try:
+        import subprocess
+        result = subprocess.run(
+            [tess_cmd, "--version"],
+            capture_output=True, text=True, timeout=10
+        )
+        tess_ver = (result.stdout + result.stderr).strip().split('\n')[0]
+        print(f"[DIAG] Tesseract version: {tess_ver}", file=sys.stderr)
+    except Exception as e:
+        emit("error", message=f"Tesseract nie odpowiada: {e}")
+        emit("done", found_count=0)
+        return
+
     os.makedirs(SAVE_FOLDER, exist_ok=True)
 
     emit("status", message="Skanuję stronę główną Biedronki...")
@@ -658,7 +691,10 @@ if __name__ == "__main__":
         try:
             gui_main(args.keyword, args.discord)
         except Exception as e:
-            emit("error", message=str(e))
+            import traceback
+            tb = traceback.format_exc()
+            print(f"[FATAL] {tb}", file=sys.stderr)
+            emit("error", message=f"Krytyczny błąd: {e}")
             emit("done", found_count=0)
     else:
         try:

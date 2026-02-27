@@ -57,6 +57,8 @@ jobs:
             --hidden-import=PIL \
             --hidden-import=PIL.Image \
             --hidden-import=pytesseract \
+            --hidden-import=certifi \
+            --collect-data certifi \
             biedrona.py
           cp -r dist_py/biedrona python_dist
 
@@ -154,7 +156,7 @@ jobs:
 
       - name: Build Python binary
         run: |
-          pyinstaller --distpath dist_py --workpath build_py --noconfirm --onedir --name biedrona --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=pytesseract biedrona.py
+          pyinstaller --distpath dist_py --workpath build_py --noconfirm --onedir --name biedrona --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=pytesseract --hidden-import=certifi --collect-data certifi biedrona.py
           xcopy dist_py\biedrona python_dist\ /E /I /Q
         shell: cmd
 

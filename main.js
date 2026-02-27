@@ -72,6 +72,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Allow opening DevTools with Ctrl+Shift+I (also in packaged builds for debugging)
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -214,9 +221,12 @@ ipcMain.handle('start-search', async (_event, { keyword, discordEnabled }) => {
     }
   });
 
+  let stderrBuffer = '';
+
   pythonProcess.stderr.on('data', (data) => {
-    // Log Python errors to dev console
-    console.error('[Python]', data.toString());
+    const text = data.toString();
+    console.error('[Python]', text);
+    stderrBuffer += text;
   });
 
   pythonProcess.on('close', (code) => {
@@ -227,8 +237,16 @@ ipcMain.handle('start-search', async (_event, { keyword, discordEnabled }) => {
         mainWindow.webContents.send('search-event', evt);
       } catch {}
     }
+    // If process crashed or ended unexpectedly, send error with stderr details
+    if (code !== 0 && code !== null) {
+      const details = stderrBuffer.trim().slice(-800);
+      mainWindow.webContents.send('search-event', {
+        type: 'error',
+        message: `Silnik wyszukiwania zakończył się z kodem ${code}.${details ? '\n' + details : ''}`,
+      });
+    }
     pythonProcess = null;
-    mainWindow.webContents.send('search-event', { type: 'process-ended', code });
+    mainWindow.webContents.send('search-event', { type: 'process-ended', code, stderr: stderrBuffer.trim().slice(-1000) });
   });
 });
 
