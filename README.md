@@ -72,15 +72,18 @@ Wynik w katalogu `dist\`.
 
 ### GitHub Actions (automatycznie)
 
-Build odpala się automatycznie po pushu taga `v*` (np. `v1.0.0`).
-Można też odpalić ręcznie z zakładki Actions → Build → "Run workflow".
+Nie trzeba nic instalować. GitHub sam zbuduje aplikację na Windows i Linux.
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-Workflow buduje jednocześnie Linux (AppImage) i Windows (portable .exe), a wyniki publikuje jako GitHub Release z plikami do pobrania.
+1. Push na `main`:
+   ```bash
+   git add -A && git commit -m "build" && git push
+   ```
+2. Wejdź na GitHub → zakładka **Actions** → **Build** → kliknij **"Run workflow"**
+3. Opcjonalnie wpisz wersję (np. `1.1.0`) — domyślnie bierze z package.json
+4. Poczekaj ~5-10 min
+5. Po zakończeniu w zakładce **Releases** pojawi się nowa wersja z plikami:
+   - `Biedra-Promo-Hunter-{wersja}-Windows-x86_64.exe`
+   - `Biedra-Promo-Hunter-{wersja}-Linux-x86_64.AppImage`
 
 ---
 
