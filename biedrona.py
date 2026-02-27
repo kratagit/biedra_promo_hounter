@@ -308,22 +308,22 @@ def send_single_batch(files_dict, embeds_list, batch_num):
         payload = {"content": "", "embeds": embeds_list}
         response = requests.post(DISCORD_URL, data={"payload_json": json.dumps(payload)}, files=files_dict)
         if response.status_code not in [200, 204]:
-            print(f"\n⚠️ Blad Discorda: {response.status_code}")
+            print(f"\nBlad Discorda: {response.status_code}")
             if response.text:
                 print(f"   Odpowiedz API: {response.text[:500]}")
         else:
             with print_lock:
-                print(f"\n📨 Wyslano paczke nr {batch_num}")
+                print(f"\nWyslano paczke nr {batch_num}")
     except Exception as e:
-        print(f"\n⚠️ Blad podczas wysylania do Discorda: {e}")
+        print(f"\nBlad podczas wysylania do Discorda: {e}")
 
 def send_discord_gallery_dynamic(found_files):
     if not DISCORD_URL:
-        print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysylanie na Discorda.")
+        print("\nBrak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysylanie na Discorda.")
         return
     if not found_files:
         return
-    print(f"\n📦 Pakowanie {len(found_files)} zdjec dla Discorda...")
+    print(f"\nPakowanie {len(found_files)} zdjec dla Discorda...")
 
     current_batch_files = {}
     current_batch_embeds = []
@@ -374,7 +374,7 @@ def sanitize_filename(name):
 
 def get_all_leaflet_uuids():
     main_page_url = "https://www.biedronka.pl/pl/gazetki"
-    print(f"🔎 KROK 1: Skanuje strone glowna...")
+    print("KROK 1: Skanuje strone glowna...")
     try:
         response = requests.get(main_page_url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -383,7 +383,7 @@ def get_all_leaflet_uuids():
         
         if not unique_links: return []
         
-        print(f"✅ Wykryto {len(unique_links)} gazetek. Pobieram ID...")
+        print(f"Wykryto {len(unique_links)} gazetek. Pobieram ID...")
         long_ids = set()
         for i, link in enumerate(unique_links):
             full_url = link if link.startswith("http") else f"https://www.biedronka.pl{link}"
@@ -622,15 +622,15 @@ def main():
     if not uuids: return
 
     all_tasks = []
-    print(f"\n📂 KROK 2: Przygotowuje liste stron...")
+    print(f"\nKROK 2: Przygotowuje liste stron...")
     for uuid in uuids:
         name, pages = get_leaflet_pages(uuid)
         if pages:
-            print(f"   📄 {name[:50]:<50} ... {len(pages)} str.")
+            print(f"   {name[:50]:<50} ... {len(pages)} str.")
             all_tasks.extend(pages)
     
     total_pages = len(all_tasks)
-    print(f"\n🗂️ KROK 3: laduje indeks OCR ({OCR_CACHE_DB})")
+    print(f"\nKROK 3: laduje indeks OCR ({OCR_CACHE_DB})")
 
     conn = init_cache_db()
     removed_pages = prune_cache_for_active_leaflets(conn, uuids)
@@ -640,22 +640,22 @@ def main():
     cached_tasks = [task for task in all_tasks if task["url"] in cached_urls]
     uncached_tasks = [task for task in all_tasks if task["url"] not in cached_urls]
 
-    print(f"   ✅ W cache: {len(cached_tasks)} stron")
-    print(f"   🆕 Do OCR: {len(uncached_tasks)} stron")
+    print(f"   W cache: {len(cached_tasks)} stron")
+    print(f"   Do OCR: {len(uncached_tasks)} stron")
 
     all_found_images_paths = []
     found_count = 0
 
-    print(f"\n🔍 KROK 4: Wyszukiwanie w indeksie dla znanych stron...")
+    print(f"\nKROK 4: Wyszukiwanie w indeksie dla znanych stron...")
     cached_hits = get_cached_hits(conn, cached_tasks, KEYWORD_TO_FIND)
     for task, leaflet_name, page_number in cached_hits:
         saved_path = download_and_save_image(task)
         if saved_path:
             found_count += 1
             all_found_images_paths.append(saved_path)
-            print(f"🔥 ZNALEZIONO (CACHE)! {leaflet_name} (Str. {page_number})")
+            print(f"ZNALEZIONO (CACHE)! {leaflet_name} (Str. {page_number})")
     
-    print(f"\n🚀 KROK 5: OCR tylko dla nowych stron (hybrydowo)")
+    print(f"\nKROK 5: OCR tylko dla nowych stron (hybrydowo)")
     processed = 0
     writes_since_commit = 0
     
@@ -666,7 +666,7 @@ def main():
             task = future_to_task[future]
             processed += 1
             progress = (processed / len(uncached_tasks)) * 100 if uncached_tasks else 100
-            status_msg = f"⏳ {processed}/{len(uncached_tasks)} ({progress:.0f}%) | {task['leaflet_name'][:20]}... S.{task['page_number']}"
+            status_msg = f"Postep {processed}/{len(uncached_tasks)} ({progress:.0f}%) | {task['leaflet_name'][:20]}... S.{task['page_number']}"
             with print_lock: print(f"\r{status_msg:<80}", end="", flush=True)
             
             ocr_text, image_bytes = future.result()
@@ -685,7 +685,7 @@ def main():
                 all_found_images_paths.append(saved_path)
                 with print_lock:
                     print(f"\r{' '*80}\r", end="")
-                    print(f"🔥 ZNALEZIONO! {task['leaflet_name']} (Str. {task['page_number']})")
+                    print(f"ZNALEZIONO! {task['leaflet_name']} (Str. {task['page_number']})")
 
     conn.commit()
     conn.close()
@@ -697,7 +697,7 @@ def main():
         if DISCORD_URL:
             send_discord_gallery_dynamic(all_found_images_paths)
         else:
-            print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysylanie na Discorda.")
+            print("\nBrak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysylanie na Discorda.")
     
     print("="*60)
 
@@ -720,5 +720,5 @@ if __name__ == "__main__":
         try:
             main()
         except Exception as e:
-            print(f"\n❌ Blad: {e}")
+            print(f"\nBlad: {e}")
             input("Enter...")
