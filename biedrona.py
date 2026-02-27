@@ -22,33 +22,44 @@ def get_tesseract_cmd():
     """Detect Tesseract: bundled (env var) > system default."""
     # 1. Check env var set by Electron in packaged mode
     env_cmd = os.environ.get('TESSERACT_CMD')
-    if env_cmd and os.path.isfile(env_cmd):
+    if env_cmd:
+        tess_dir = os.path.dirname(env_cmd)
         tessdata_prefix = os.environ.get('TESSDATA_PREFIX')
-        if tessdata_prefix:
-            # Ensure TESSDATA_PREFIX points to the parent containing tessdata/
-            os.environ['TESSDATA_PREFIX'] = tessdata_prefix
-            tessdata_dir = os.path.join(tessdata_prefix, 'tessdata')
-            if os.path.isdir(tessdata_dir):
-                files = os.listdir(tessdata_dir)
-                print(f"[Tesseract] tessdata/ contains: {files}", file=sys.stderr)
-            else:
-                print(f"[Tesseract] WARNING: tessdata dir not found at {tessdata_dir}", file=sys.stderr)
+
+        # On Linux, prefer calling tesseract.bin directly (skip bash wrapper)
+        # and set LD_LIBRARY_PATH here to avoid bash picking up incompatible bundled libs
         if platform.system() != "Windows":
-            try:
-                os.chmod(env_cmd, 0o755)
-            except OSError:
-                pass  # Read-only filesystem (e.g. AppImage) — binary is already executable
-        print(f"[Tesseract] Using bundled: {env_cmd}", file=sys.stderr)
-        print(f"[Tesseract] TESSDATA_PREFIX: {tessdata_prefix}", file=sys.stderr)
-        return env_cmd
+            tess_bin = os.path.join(tess_dir, 'tesseract.bin')
+            if os.path.isfile(tess_bin):
+                lib_dir = os.path.join(tess_dir, 'lib')
+                if os.path.isdir(lib_dir):
+                    existing = os.environ.get('LD_LIBRARY_PATH', '')
+                    os.environ['LD_LIBRARY_PATH'] = lib_dir + (':' + existing if existing else '')
+                    print(f"[Tesseract] Set LD_LIBRARY_PATH: {os.environ['LD_LIBRARY_PATH']}", file=sys.stderr)
+                env_cmd = tess_bin
+                print(f"[Tesseract] Using tesseract.bin directly (bypassing wrapper)", file=sys.stderr)
+
+        if not os.path.isfile(env_cmd):
+            print(f"[Tesseract] TESSERACT_CMD was set to '{env_cmd}' but file not found!", file=sys.stderr)
+        else:
+            if tessdata_prefix:
+                os.environ['TESSDATA_PREFIX'] = tessdata_prefix
+                tessdata_dir = os.path.join(tessdata_prefix, 'tessdata')
+                if os.path.isdir(tessdata_dir):
+                    files = os.listdir(tessdata_dir)
+                    print(f"[Tesseract] tessdata/ contains: {files}", file=sys.stderr)
+                else:
+                    print(f"[Tesseract] WARNING: tessdata dir not found at {tessdata_dir}", file=sys.stderr)
+            print(f"[Tesseract] Using bundled: {env_cmd}", file=sys.stderr)
+            print(f"[Tesseract] TESSDATA_PREFIX: {tessdata_prefix}", file=sys.stderr)
+            return env_cmd
+
     # 2. Fallback to system Tesseract
     if platform.system() == "Windows":
         fallback = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
     else:
         fallback = '/usr/bin/tesseract'
     print(f"[Tesseract] Using system fallback: {fallback}", file=sys.stderr)
-    if env_cmd:
-        print(f"[Tesseract] TESSERACT_CMD was set to '{env_cmd}' but file not found!", file=sys.stderr)
     return fallback
 
 pytesseract.pytesseract.tesseract_cmd = get_tesseract_cmd()
