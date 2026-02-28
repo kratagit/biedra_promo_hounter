@@ -31,6 +31,16 @@ jobs:
         with:
           node-version: 20
 
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -60,7 +70,19 @@ jobs:
         run: npm install
 
       - name: Build Electron (Linux)
-        run: npx electron-builder --linux
+        run: |
+          for i in 1 2 3; do
+            echo "Build attempt $i/3"
+            if npx electron-builder --linux; then
+              exit 0
+            fi
+            if [ "$i" -lt 3 ]; then
+              echo "Attempt $i failed, retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "Electron build failed after 3 attempts"
+          exit 1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -97,6 +119,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
 
       - name: Setup Python
         uses: actions/setup-python@v5
