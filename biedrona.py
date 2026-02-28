@@ -2,7 +2,6 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from PIL import Image, ImageOps, ImageEnhance
-import pytesseract
 from io import BytesIO
 import os
 import threading
@@ -14,68 +13,116 @@ from dotenv import load_dotenv
 import platform
 import sys
 import argparse
+import subprocess
+import shutil
+import tempfile
 
 # --- KONFIGURACJA ---
 load_dotenv() 
 
 def get_tesseract_cmd():
-    """Detect Tesseract: bundled (env var) > system default."""
-    # 1. Check env var set by Electron in packaged mode
+    """Detect system Tesseract: custom path (env) > standard system paths.
+    
+    Tesseract must be installed by the user:
+    - Linux (Arch):   sudo pacman -S tesseract tesseract-data-pol
+    - Linux (Debian): sudo apt install tesseract-ocr tesseract-ocr-pol
+    - Windows:        https://github.com/UB-Mannheim/tesseract/wiki
+    """
+    
+    # 1. Custom path from TESSERACT_CMD env var (set by Electron from user config)
     env_cmd = os.environ.get('TESSERACT_CMD')
-    if env_cmd:
-        tess_dir = os.path.dirname(env_cmd)
-        tessdata_prefix = os.environ.get('TESSDATA_PREFIX')
-
-        # On Linux, prefer calling tesseract.bin directly (skip bash wrapper)
-        # and set LD_LIBRARY_PATH here to avoid bash picking up incompatible bundled libs
-        if platform.system() != "Windows":
-            tess_bin = os.path.join(tess_dir, 'tesseract.bin')
-            if os.path.isfile(tess_bin):
-                lib_dir = os.path.join(tess_dir, 'lib')
-                if os.path.isdir(lib_dir):
-                    existing = os.environ.get('LD_LIBRARY_PATH', '')
-                    os.environ['LD_LIBRARY_PATH'] = lib_dir + (':' + existing if existing else '')
-                    print(f"[Tesseract] Set LD_LIBRARY_PATH: {os.environ['LD_LIBRARY_PATH']}", file=sys.stderr)
-                env_cmd = tess_bin
-                print(f"[Tesseract] Using tesseract.bin directly (bypassing wrapper)", file=sys.stderr)
-
-        if not os.path.isfile(env_cmd):
-            print(f"[Tesseract] TESSERACT_CMD was set to '{env_cmd}' but file not found!", file=sys.stderr)
-        else:
-            if tessdata_prefix:
-                # Auto-detect: if tessdata_prefix has a tessdata/ subfolder, use it
-                # Tesseract 5 expects TESSDATA_PREFIX to point directly to the folder with .traineddata files
-                tessdata_sub = os.path.join(tessdata_prefix, 'tessdata')
-                if os.path.isdir(tessdata_sub) and os.path.isfile(os.path.join(tessdata_sub, 'pol.traineddata')):
-                    tessdata_prefix = tessdata_sub
-                os.environ['TESSDATA_PREFIX'] = tessdata_prefix
-                traineddata = os.path.join(tessdata_prefix, 'pol.traineddata')
-                if os.path.isfile(traineddata):
-                    print(f"[Tesseract] Found pol.traineddata at {traineddata}", file=sys.stderr)
-                else:
-                    print(f"[Tesseract] WARNING: pol.traineddata NOT found at {traineddata}", file=sys.stderr)
-                    files = os.listdir(tessdata_prefix) if os.path.isdir(tessdata_prefix) else []
-                    print(f"[Tesseract] TESSDATA_PREFIX contents: {files}", file=sys.stderr)
-            print(f"[Tesseract] Using bundled: {env_cmd}", file=sys.stderr)
-            print(f"[Tesseract] TESSDATA_PREFIX: {tessdata_prefix}", file=sys.stderr)
-            return env_cmd
-
-    # 2. Fallback to system Tesseract
+    if env_cmd and os.path.isfile(env_cmd):
+        print(f"[Tesseract] Using custom path: {env_cmd}", file=sys.stderr)
+        return env_cmd
+    elif env_cmd:
+        print(f"[Tesseract] Custom path '{env_cmd}' not found, trying defaults...", file=sys.stderr)
+    
+    # 2. Search standard system paths
     if platform.system() == "Windows":
-        fallback = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+        search_paths = [
+            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+            os.path.expandvars(r'%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe'),
+        ]
     else:
-        fallback = '/usr/bin/tesseract'
-    print(f"[Tesseract] Using system fallback: {fallback}", file=sys.stderr)
-    return fallback
+        search_paths = [
+            '/usr/bin/tesseract',
+            '/usr/local/bin/tesseract',
+            '/opt/homebrew/bin/tesseract',
+        ]
+    
+    for tess_path in search_paths:
+        if os.path.isfile(tess_path):
+            try:
+                result = subprocess.run([tess_path, '--version'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    test = subprocess.run([tess_path, '--list-langs'], capture_output=True, text=True, timeout=5)
+                    if 'pol' in test.stdout:
+                        print(f"[Tesseract] Found system Tesseract: {tess_path}", file=sys.stderr)
+                        return tess_path
+                    else:
+                        print(f"[Tesseract] Found at {tess_path} but 'pol' lang missing!", file=sys.stderr)
+                        print(f"[Tesseract] Available: {test.stdout.strip()}", file=sys.stderr)
+            except Exception as e:
+                print(f"[Tesseract] Error checking {tess_path}: {e}", file=sys.stderr)
+    
+    # 3. Try shutil.which as last resort (PATH search)
+    which_tess = shutil.which('tesseract')
+    if which_tess:
+        print(f"[Tesseract] Found via PATH: {which_tess}", file=sys.stderr)
+        return which_tess
+    
+    # 4. Not found
+    print("[Tesseract] NOT FOUND! OCR will not work.", file=sys.stderr)
+    return None
 
-pytesseract.pytesseract.tesseract_cmd = get_tesseract_cmd()
+TESSERACT_CMD = get_tesseract_cmd()
+
+
+def run_tesseract(image, lang='pol', config=''):
+    """Run Tesseract OCR via subprocess directly — no pytesseract overhead."""
+    if not TESSERACT_CMD:
+        return ''
+    
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_in:
+        tmp_in_path = tmp_in.name
+        image.save(tmp_in, format='PNG')
+    
+    tmp_out_path = tmp_in_path + '_out'
+    
+    try:
+        cmd = [TESSERACT_CMD, tmp_in_path, tmp_out_path, '-l', lang]
+        if config:
+            cmd.extend(config.split())
+        cmd.extend(['--oem', '1'])  # LSTM only — faster
+        
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        
+        out_file = tmp_out_path + '.txt'
+        if os.path.isfile(out_file):
+            with open(out_file, 'r', encoding='utf-8', errors='replace') as f:
+                text = f.read()
+            os.unlink(out_file)
+            return text
+        else:
+            stderr = result.stderr.decode(errors='replace') if result.stderr else ''
+            print(f"[OCR] No output. stderr: {stderr}", file=sys.stderr)
+            return ''
+    except Exception as e:
+        print(f"[OCR subprocess error] {e}", file=sys.stderr)
+        return ''
+    finally:
+        try:
+            os.unlink(tmp_in_path)
+        except OSError:
+            pass
 
 # Use BIEDRONA_DATA_DIR if set (packaged Electron), otherwise script directory
 DATA_DIR = os.environ.get('BIEDRONA_DATA_DIR', os.path.dirname(os.path.abspath(__file__)))
 
-KEYWORD_TO_FIND = "" # Zostanie ustawione przez uzytkownika
+KEYWORD_TO_FIND = "" # Zostanie ustawione przez użytkownika
 SAVE_FOLDER = os.path.join(DATA_DIR, "gazetki")
-MAX_WORKERS = 5 # Utrzymujemy 5 watkow (kazdy robi teraz 2x wiecej pracy, wiec nie zwiekszamy)
+MAX_WORKERS = 5 # Utrzymujemy 5 wątków (każdy robi teraz 2x więcej pracy, więc nie zwiększamy)
 OCR_CACHE_DB = os.path.join(DATA_DIR, "ocr_cache.db")
 
 DISCORD_URL = os.getenv("DISCORD_WEBHOOK_URL")
@@ -250,18 +297,18 @@ def download_and_save_image(task_data):
 def preprocess_red_background(img):
     """
     Metoda 'Snajper' z Wersji 25.
-    Idealna na czerwone tla, slaba na turkusowe.
-    Wyciaga kanal Zielony.
+    Idealna na czerwone tła, słaba na turkusowe.
+    Wyciąga kanał Zielony.
     """
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
     r, g, b = img.split()
     
-    # Uzywamy kanalu G (Zielonego) jako bazy
+    # Używamy kanału G (Zielonego) jako bazy
     img = g 
     
-    # Powiekszenie dla malych liter
+    # Powiększenie dla małych liter
     img = img.resize((img.width * 2, img.height * 2), Image.Resampling.BILINEAR)
     
     # Progowanie
@@ -272,12 +319,12 @@ def preprocess_red_background(img):
 def preprocess_standard(img):
     """
     Metoda Standardowa.
-    Dobra na biale, zolte, turkusowe tla.
+    Dobra na białe, żółte, turkusowe tła.
     """
-    # Konwersja na szarosc
+    # Konwersja na szarość
     img = img.convert('L')
     
-    # Lekkie powiekszenie pomaga zawsze
+    # Lekkie powiększenie pomaga zawsze
     img = img.resize((int(img.width * 1.5), int(img.height * 1.5)), Image.Resampling.BILINEAR)
     
     # Auto-kontrast
@@ -300,7 +347,7 @@ def compress_image_for_discord(image_path):
         buffer.seek(0)
         return buffer
     except Exception as e:
-        print(f"Blad kompresji: {e}")
+        print(f"Błąd kompresji: {e}")
         return None
 
 def send_single_batch(files_dict, embeds_list, batch_num):
@@ -308,22 +355,22 @@ def send_single_batch(files_dict, embeds_list, batch_num):
         payload = {"content": "", "embeds": embeds_list}
         response = requests.post(DISCORD_URL, data={"payload_json": json.dumps(payload)}, files=files_dict)
         if response.status_code not in [200, 204]:
-            print(f"\nBlad Discorda: {response.status_code}")
+            print(f"\n⚠️ Błąd Discorda: {response.status_code}")
             if response.text:
-                print(f"   Odpowiedz API: {response.text[:500]}")
+                print(f"   Odpowiedź API: {response.text[:500]}")
         else:
             with print_lock:
-                print(f"\nWyslano paczke nr {batch_num}")
+                print(f"\n📨 Wysłano paczkę nr {batch_num}")
     except Exception as e:
-        print(f"\nBlad podczas wysylania do Discorda: {e}")
+        print(f"\n⚠️ Błąd podczas wysyłania do Discorda: {e}")
 
 def send_discord_gallery_dynamic(found_files):
     if not DISCORD_URL:
-        print("\nBrak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysylanie na Discorda.")
+        print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysyłanie na Discorda.")
         return
     if not found_files:
         return
-    print(f"\nPakowanie {len(found_files)} zdjec dla Discorda...")
+    print(f"\n📦 Pakowanie {len(found_files)} zdjęć dla Discorda...")
 
     current_batch_files = {}
     current_batch_embeds = []
@@ -374,7 +421,7 @@ def sanitize_filename(name):
 
 def get_all_leaflet_uuids():
     main_page_url = "https://www.biedronka.pl/pl/gazetki"
-    print("KROK 1: Skanuje strone glowna...")
+    print(f"🔎 KROK 1: Skanuję stronę główną...")
     try:
         response = requests.get(main_page_url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -383,7 +430,7 @@ def get_all_leaflet_uuids():
         
         if not unique_links: return []
         
-        print(f"Wykryto {len(unique_links)} gazetek. Pobieram ID...")
+        print(f"✅ Wykryto {len(unique_links)} gazetek. Pobieram ID...")
         long_ids = set()
         for i, link in enumerate(unique_links):
             full_url = link if link.startswith("http") else f"https://www.biedronka.pl{link}"
@@ -421,19 +468,19 @@ def process_page(task_data):
         resp = requests.get(url, headers=HEADERS, timeout=15)
         content = resp.content
         
-        # Wczytujemy oryginal
+        # Wczytujemy oryginał
         img_original = Image.open(BytesIO(content))
         
-        # --- SKAN 1: STANDARDOWY (Dla turkusowych, bialych itp.) ---
-        img_std = preprocess_standard(img_original.copy()) # Kopia, zeby nie zepsuc oryginalu
-        text_std = pytesseract.image_to_string(img_std, lang='pol')
+        # --- SKAN 1: STANDARDOWY (Dla turkusowych, białych itp.) ---
+        img_std = preprocess_standard(img_original.copy()) # Kopia, żeby nie zepsuć oryginału
+        text_std = run_tesseract(img_std, lang='pol')
         
-        # --- SKAN 2: SNAJPER (Dla czerwonych i trudnych kontrastow) ---
+        # --- SKAN 2: SNAJPER (Dla czerwonych i trudnych kontrastów) ---
         img_red = preprocess_red_background(img_original.copy())
-        # Tutaj uzywamy konfiguracji psm 6 (blok tekstu), bo po progowaniu napisy sa wyrazne
-        text_red = pytesseract.image_to_string(img_red, lang='pol', config='--psm 6')
+        # Tutaj używamy konfiguracji psm 6 (blok tekstu), bo po progowaniu napisy są wyraźne
+        text_red = run_tesseract(img_red, lang='pol', config='--psm 6')
         
-        # laczymy wyniki z obu skanow
+        # Łączymy wyniki z obu skanów
         full_text = text_std + " " + text_red
 
         return full_text, content
@@ -463,22 +510,23 @@ def gui_main(keyword, discord_enabled):
         "cwd": os.getcwd(),
         "DATA_DIR": DATA_DIR,
         "SAVE_FOLDER": SAVE_FOLDER,
-        "tesseract_cmd": pytesseract.pytesseract.tesseract_cmd,
-        "TESSDATA_PREFIX": os.environ.get("TESSDATA_PREFIX", "(not set)"),
+        "tesseract_cmd": TESSERACT_CMD or "(not found)",
     }
     print(f"[DIAG] {json.dumps(diag, ensure_ascii=False)}", file=sys.stderr)
 
     # Verify Tesseract is actually callable
-    tess_cmd = pytesseract.pytesseract.tesseract_cmd
-    if not os.path.isfile(tess_cmd):
-        emit("error", message=f"Tesseract nie znaleziony: {tess_cmd}")
+    if not TESSERACT_CMD or not os.path.isfile(TESSERACT_CMD):
+        if platform.system() == "Windows":
+            install_hint = "Pobierz i zainstaluj Tesseract z: https://github.com/UB-Mannheim/tesseract/wiki\nZaznacz język polski podczas instalacji."
+        else:
+            install_hint = "Zainstaluj Tesseract:\n  Arch: sudo pacman -S tesseract tesseract-data-pol\n  Debian/Ubuntu: sudo apt install tesseract-ocr tesseract-ocr-pol"
+        emit("error", message=f"Tesseract OCR nie jest zainstalowany!\n{install_hint}")
         emit("done", found_count=0)
         return
 
     try:
-        import subprocess
         result = subprocess.run(
-            [tess_cmd, "--version"],
+            [TESSERACT_CMD, "--version"],
             capture_output=True, text=True, timeout=10
         )
         tess_ver = (result.stdout + result.stderr).strip().split('\n')[0]
@@ -490,14 +538,14 @@ def gui_main(keyword, discord_enabled):
 
     os.makedirs(SAVE_FOLDER, exist_ok=True)
 
-    emit("status", message="Skanuje strone glowna Biedronki...")
+    emit("status", message="Skanuję stronę główną Biedronki...")
     uuids = get_all_leaflet_uuids()
     if not uuids:
-        emit("error", message="Nie znaleziono zadnych gazetek na stronie.")
+        emit("error", message="Nie znaleziono żadnych gazetek na stronie.")
         emit("done", found_count=0)
         return
 
-    emit("status", message=f"Wykryto {len(uuids)} gazetek. Pobieram liste stron...")
+    emit("status", message=f"Wykryto {len(uuids)} gazetek. Pobieram listę stron...")
 
     all_tasks = []
     for uuid in uuids:
@@ -507,11 +555,11 @@ def gui_main(keyword, discord_enabled):
 
     total_pages = len(all_tasks)
     if total_pages == 0:
-        emit("error", message="Nie udalo sie pobrac stron gazetek.")
+        emit("error", message="Nie udało się pobrać stron gazetek.")
         emit("done", found_count=0)
         return
 
-    emit("status", message=f"lacznie {total_pages} stron. laduje indeks OCR...")
+    emit("status", message=f"Łącznie {total_pages} stron. Ładuję indeks OCR...")
 
     conn = init_cache_db()
     prune_cache_for_active_leaflets(conn, uuids)
@@ -529,7 +577,7 @@ def gui_main(keyword, discord_enabled):
 
     # Search in cache — with per-chunk progress
     if cached_tasks:
-        emit("status", message="Przeszukuje indeks cache...")
+        emit("status", message="Przeszukuję indeks cache...")
         # Build lookup for cached tasks
         task_by_url = {task["url"]: task for task in cached_tasks}
         match_query = build_fts_match_query(KEYWORD_TO_FIND)
@@ -597,7 +645,7 @@ def gui_main(keyword, discord_enabled):
 
     # Discord
     if all_found and DISCORD_URL:
-        emit("status", message="Wysylam wyniki na Discorda...")
+        emit("status", message="Wysyłam wyniki na Discorda...")
         send_discord_gallery_dynamic(all_found)
 
     conn.close()
@@ -608,10 +656,10 @@ def main():
     global KEYWORD_TO_FIND
     
     print("="*60)
-    KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, maslo): ").strip()
+    KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, masło): ").strip()
     while not KEYWORD_TO_FIND:
-        print("Haslo nie moze byc puste!")
-        KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, maslo): ").strip()
+        print("Hasło nie może być puste!")
+        KEYWORD_TO_FIND = input("Wpisz czego szukasz (np. mleko, masło): ").strip()
 
     os.makedirs(SAVE_FOLDER, exist_ok=True)
     print("="*60)
@@ -622,40 +670,40 @@ def main():
     if not uuids: return
 
     all_tasks = []
-    print(f"\nKROK 2: Przygotowuje liste stron...")
+    print(f"\n📂 KROK 2: Przygotowuję listę stron...")
     for uuid in uuids:
         name, pages = get_leaflet_pages(uuid)
         if pages:
-            print(f"   {name[:50]:<50} ... {len(pages)} str.")
+            print(f"   📄 {name[:50]:<50} ... {len(pages)} str.")
             all_tasks.extend(pages)
     
     total_pages = len(all_tasks)
-    print(f"\nKROK 3: laduje indeks OCR ({OCR_CACHE_DB})")
+    print(f"\n🗂️ KROK 3: Ładuję indeks OCR ({OCR_CACHE_DB})")
 
     conn = init_cache_db()
     removed_pages = prune_cache_for_active_leaflets(conn, uuids)
     if removed_pages:
-        print(f"   🧹 Usunieto z cache nieaktualne strony: {removed_pages}")
+        print(f"   🧹 Usunięto z cache nieaktualne strony: {removed_pages}")
     cached_urls = get_cached_urls(conn, all_tasks)
     cached_tasks = [task for task in all_tasks if task["url"] in cached_urls]
     uncached_tasks = [task for task in all_tasks if task["url"] not in cached_urls]
 
-    print(f"   W cache: {len(cached_tasks)} stron")
-    print(f"   Do OCR: {len(uncached_tasks)} stron")
+    print(f"   ✅ W cache: {len(cached_tasks)} stron")
+    print(f"   🆕 Do OCR: {len(uncached_tasks)} stron")
 
     all_found_images_paths = []
     found_count = 0
 
-    print(f"\nKROK 4: Wyszukiwanie w indeksie dla znanych stron...")
+    print(f"\n🔍 KROK 4: Wyszukiwanie w indeksie dla znanych stron...")
     cached_hits = get_cached_hits(conn, cached_tasks, KEYWORD_TO_FIND)
     for task, leaflet_name, page_number in cached_hits:
         saved_path = download_and_save_image(task)
         if saved_path:
             found_count += 1
             all_found_images_paths.append(saved_path)
-            print(f"ZNALEZIONO (CACHE)! {leaflet_name} (Str. {page_number})")
+            print(f"🔥 ZNALEZIONO (CACHE)! {leaflet_name} (Str. {page_number})")
     
-    print(f"\nKROK 5: OCR tylko dla nowych stron (hybrydowo)")
+    print(f"\n🚀 KROK 5: OCR tylko dla nowych stron (hybrydowo)")
     processed = 0
     writes_since_commit = 0
     
@@ -666,7 +714,7 @@ def main():
             task = future_to_task[future]
             processed += 1
             progress = (processed / len(uncached_tasks)) * 100 if uncached_tasks else 100
-            status_msg = f"Postep {processed}/{len(uncached_tasks)} ({progress:.0f}%) | {task['leaflet_name'][:20]}... S.{task['page_number']}"
+            status_msg = f"⏳ {processed}/{len(uncached_tasks)} ({progress:.0f}%) | {task['leaflet_name'][:20]}... S.{task['page_number']}"
             with print_lock: print(f"\r{status_msg:<80}", end="", flush=True)
             
             ocr_text, image_bytes = future.result()
@@ -685,7 +733,7 @@ def main():
                 all_found_images_paths.append(saved_path)
                 with print_lock:
                     print(f"\r{' '*80}\r", end="")
-                    print(f"ZNALEZIONO! {task['leaflet_name']} (Str. {task['page_number']})")
+                    print(f"🔥 ZNALEZIONO! {task['leaflet_name']} (Str. {task['page_number']})")
 
     conn.commit()
     conn.close()
@@ -697,7 +745,7 @@ def main():
         if DISCORD_URL:
             send_discord_gallery_dynamic(all_found_images_paths)
         else:
-            print("\nBrak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysylanie na Discorda.")
+            print("\n⚠️ Brak zmiennej DISCORD_WEBHOOK_URL w pliku .env. Pomijam wysyłanie na Discorda.")
     
     print("="*60)
 
@@ -714,11 +762,11 @@ if __name__ == "__main__":
             import traceback
             tb = traceback.format_exc()
             print(f"[FATAL] {tb}", file=sys.stderr)
-            emit("error", message=f"Krytyczny blad: {e}")
+            emit("error", message=f"Krytyczny błąd: {e}")
             emit("done", found_count=0)
     else:
         try:
             main()
         except Exception as e:
-            print(f"\nBlad: {e}")
+            print(f"\n❌ Błąd: {e}")
             input("Enter...")

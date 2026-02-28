@@ -25,11 +25,6 @@
         "from": "python_dist/",
         "to": "python_dist",
         "filter": ["**/*"]
-      },
-      {
-        "from": "tesseract_dist/",
-        "to": "tesseract_dist",
-        "filter": ["**/*"]
       }
     ],
     "linux": {

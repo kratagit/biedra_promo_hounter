@@ -163,6 +163,20 @@
         </div>
 
         <div class="settings-card" style="animation-delay: 0.15s">
+          <div class="settings-card-title">Tesseract OCR</div>
+          <div class="settings-card-desc">
+            Ścieżka do Tesseract (pozostaw puste = automatyczne wykrywanie).<br>
+            <strong>Linux:</strong> <code>sudo pacman -S tesseract tesseract-data-pol</code><br>
+            <strong>Windows:</strong> pobierz z <a href="https://github.com/UB-Mannheim/tesseract/wiki" style="color:#e30613;">UB-Mannheim</a> (zaznacz język polski)
+          </div>
+          <div class="settings-row" style="gap: 8px;">
+            <input type="text" class="settings-input" id="settings-tesseract-path" placeholder="np. C:\\Program Files\\Tesseract-OCR\\tesseract.exe">
+            <button class="settings-save-btn" id="settings-tesseract-save">Zapisz</button>
+          </div>
+          <div class="settings-status" id="tesseract-status" style="display:none;"></div>
+        </div>
+
+        <div class="settings-card" style="animation-delay: 0.25s">
           <div class="settings-card-title">Jakość podglądu</div>
           <div class="settings-card-desc">Ustaw szerokość miniatur w galerii wyników (px). Mniejsza wartość = szybsze ładowanie, ale gorsza jakość podglądu. Lightbox zawsze pokazuje pełną rozdzielczość.</div>
           <div class="settings-row">
@@ -171,7 +185,7 @@
           </div>
         </div>
 
-        <div class="settings-card" style="animation-delay: 0.25s">
+        <div class="settings-card" style="animation-delay: 0.35s">
           <div class="settings-card-title">Informacje</div>
           <div class="settings-card-desc">
             <strong>Biedronka Promo Hunter</strong> v1.0<br>

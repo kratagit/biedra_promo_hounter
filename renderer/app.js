@@ -443,6 +443,9 @@
   const settingsDiscordToggle = document.getElementById('settings-discord-toggle');
   const thumbQualitySlider = document.getElementById('settings-thumb-quality');
   const thumbQualityLabel = document.getElementById('thumb-quality-label');
+  const tesseractPathInput = document.getElementById('settings-tesseract-path');
+  const tesseractSaveBtn = document.getElementById('settings-tesseract-save');
+  const tesseractStatus = document.getElementById('tesseract-status');
 
   // Load config from file on startup
   async function loadAppConfig() {
@@ -459,6 +462,9 @@
         if (thumbQualitySlider) thumbQualitySlider.value = thumbnailWidth;
         if (thumbQualityLabel) thumbQualityLabel.textContent = thumbnailWidth + ' px';
       }
+      if (config.tesseractPath && tesseractPathInput) {
+        tesseractPathInput.value = config.tesseractPath;
+      }
     } catch {}
   }
   loadAppConfig();
@@ -468,6 +474,7 @@
       discordWebhookUrl: webhookInput ? webhookInput.value.trim() : '',
       discordEnabled: settingsDiscordToggle ? settingsDiscordToggle.checked : false,
       thumbnailWidth: thumbnailWidth,
+      tesseractPath: tesseractPathInput ? tesseractPathInput.value.trim() : '',
     };
     await window.api.saveConfig(config);
   }
@@ -510,6 +517,20 @@
         webhookStatus.style.display = 'block';
       }
       setTimeout(() => { webhookStatus.style.display = 'none'; }, 3000);
+    });
+  }
+
+  // Tesseract path save
+  if (tesseractSaveBtn) {
+    tesseractSaveBtn.addEventListener('click', async () => {
+      await saveAppConfig();
+      const path = tesseractPathInput ? tesseractPathInput.value.trim() : '';
+      if (tesseractStatus) {
+        tesseractStatus.textContent = path ? 'Zapisano! Zmiana będzie aktywna przy następnym wyszukiwaniu.' : 'Ustawiono automatyczne wykrywanie.';
+        tesseractStatus.className = 'settings-status success';
+        tesseractStatus.style.display = 'block';
+        setTimeout(() => { tesseractStatus.style.display = 'none'; }, 3000);
+      }
     });
   }
 })();

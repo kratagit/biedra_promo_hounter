@@ -3,6 +3,7 @@ ocr_cache.db
 node_modules/
 config.json
 .env
+odpal*
 
 # Build outputs
 python_dist/

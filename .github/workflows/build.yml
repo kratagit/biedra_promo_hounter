@@ -36,29 +36,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Tesseract (build from source with CPU optimizations)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake g++ make pkg-config \
-            libleptonica-dev libpng-dev libjpeg-dev libtiff-dev libwebp-dev \
-            libarchive-dev libcurl4-openssl-dev \
-            tesseract-ocr-pol
-
-          git clone --depth 1 --branch 5.5.0 https://github.com/tesseract-ocr/tesseract.git /tmp/tesseract-src
-          cd /tmp/tesseract-src
-          mkdir build && cd build
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_FLAGS="-O3 -march=x86-64-v2 -mtune=generic -fopenmp" \
-            -DCMAKE_C_FLAGS="-O3 -march=x86-64-v2 -mtune=generic -fopenmp" \
-            -DOPENMP_BUILD=ON \
-            -DBUILD_TRAINING_TOOLS=OFF \
-            -DDISABLED_LEGACY_ENGINE=ON
-          make -j$(nproc)
-          sudo make install
-          sudo ldconfig
-
       - name: Install Python dependencies & PyInstaller
         run: |
           pip install -r requirements.txt
@@ -74,48 +51,10 @@ jobs:
             --name biedrona \
             --hidden-import=PIL \
             --hidden-import=PIL.Image \
-            --hidden-import=pytesseract \
             --hidden-import=certifi \
             --collect-data certifi \
             biedrona.py
           cp -r dist_py/biedrona python_dist
-
-      - name: Bundle Tesseract
-        run: |
-          mkdir -p tesseract_dist/tessdata tesseract_dist/lib
-
-          TESS_BIN=$(which tesseract)
-          cp "$TESS_BIN" tesseract_dist/tesseract.bin
-
-          # Only bundle Tesseract-specific libs, NOT core system libs
-          # Core libs (libc, libm, libpthread, libdl, ld-linux, etc.) must come from user's system
-          EXCLUDE_PATTERN="libc\.|libm\.|libpthread|libdl\.|librt\.|libresolv|libnss|libBrokenLocale|libSegFault|libthread_db|ld-linux|libstdc\+\+|libgcc_s|linux-vdso"
-          ldd "$TESS_BIN" | grep "=> /" | awk '{print $3}' | grep -vE "$EXCLUDE_PATTERN" | while read lib; do
-            cp "$lib" tesseract_dist/lib/ 2>/dev/null || true
-          done
-
-          # Also bundle libgomp (OpenMP runtime) for multi-threaded OCR
-          GOMP=$(ldconfig -p | grep libgomp | head -1 | awk '{print $NF}')
-          if [ -n "$GOMP" ]; then cp "$GOMP" tesseract_dist/lib/; fi
-
-          echo "Bundled libraries:"
-          ls -la tesseract_dist/lib/
-
-          cat > tesseract_dist/tesseract << 'WRAPPER'
-          #!/bin/sh
-          DIR="$(cd "$(dirname "$0")" && pwd)"
-          export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
-          exec "$DIR/tesseract.bin" "$@"
-          WRAPPER
-          chmod +x tesseract_dist/tesseract
-
-          for td in /usr/local/share/tessdata /usr/share/tesseract-ocr/5/tessdata /usr/share/tesseract-ocr/4.00/tessdata /usr/share/tessdata; do
-            if [ -f "$td/pol.traineddata" ]; then
-              cp "$td/pol.traineddata" tesseract_dist/tessdata/
-              cp "$td/osd.traineddata" tesseract_dist/tessdata/ 2>/dev/null || true
-              break
-            fi
-          done
 
       - name: Install npm dependencies
         run: npm install
@@ -164,19 +103,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Tesseract
-        shell: pwsh
-        run: |
-          # Install Tesseract via choco
-          choco install tesseract -y
-
-          # Download Polish traineddata separately (choco may not include it)
-          $tessdata = "C:\Program Files\Tesseract-OCR\tessdata"
-          if (-not (Test-Path "$tessdata\pol.traineddata")) {
-            Write-Host "Downloading pol.traineddata..."
-            Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata/raw/main/pol.traineddata" -OutFile "$tessdata\pol.traineddata"
-          }
-
       - name: Install Python dependencies & PyInstaller
         run: |
           pip install -r requirements.txt
@@ -184,36 +110,9 @@ jobs:
 
       - name: Build Python binary
         run: |
-          pyinstaller --distpath dist_py --workpath build_py --noconfirm --onedir --name biedrona --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=pytesseract --hidden-import=certifi --collect-data certifi biedrona.py
+          pyinstaller --distpath dist_py --workpath build_py --noconfirm --onedir --name biedrona --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=certifi --collect-data certifi biedrona.py
           xcopy dist_py\biedrona python_dist\ /E /I /Q
         shell: cmd
-
-      - name: Bundle Tesseract
-        run: |
-          $tessPath = "C:\Program Files\Tesseract-OCR"
-          New-Item -ItemType Directory -Force -Path tesseract_dist\tessdata | Out-Null
-
-          # Copy tesseract binary
-          Copy-Item "$tessPath\tesseract.exe" tesseract_dist\
-
-          # Copy ALL DLLs (including subdirectories)
-          Get-ChildItem "$tessPath\*.dll" -Recurse | ForEach-Object { Copy-Item $_.FullName tesseract_dist\ }
-
-          # Copy Polish tessdata
-          if (Test-Path "$tessPath\tessdata\pol.traineddata") {
-            Copy-Item "$tessPath\tessdata\pol.traineddata" tesseract_dist\tessdata\
-          } else {
-            Write-Error "pol.traineddata not found!"
-            exit 1
-          }
-          if (Test-Path "$tessPath\tessdata\osd.traineddata") {
-            Copy-Item "$tessPath\tessdata\osd.traineddata" tesseract_dist\tessdata\
-          }
-
-          # Verify
-          Write-Host "tesseract_dist contents:"
-          Get-ChildItem tesseract_dist -Recurse | Select-Object FullName, Length
-        shell: pwsh
 
       - name: Install npm dependencies
         run: npm install
@@ -253,6 +152,11 @@ jobs:
           name: v${{ needs.build-linux.outputs.version }}
           body: |
             ## Biedra Promo Hunter v${{ needs.build-linux.outputs.version }}
+
+            ### Wymagania:
+            - **Tesseract OCR** — musi być zainstalowany osobno
+              - Linux: `sudo apt install tesseract-ocr tesseract-ocr-pol` lub `sudo pacman -S tesseract tesseract-data-pol`
+              - Windows: [UB-Mannheim installer](https://github.com/UB-Mannheim/tesseract/wiki)
 
             ### Pliki do pobrania:
             - **Windows** (portable, bez instalacji): `Biedra-Promo-Hunter-${{ needs.build-linux.outputs.version }}-Windows-x86_64.exe`
