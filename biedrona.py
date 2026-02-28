@@ -12,6 +12,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import platform
 import sys
+import os
+# --- Force UTF-8 encoding for stdout/stderr on Windows ---
+if os.name == 'nt':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8', errors='replace')
 import argparse
 import subprocess
 import shutil
