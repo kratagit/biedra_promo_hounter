@@ -26,45 +26,12 @@ pyinstaller ^
     --name biedrona ^
     --hidden-import=PIL ^
     --hidden-import=PIL.Image ^
-    --hidden-import=pytesseract ^
+    --collect-all=rapidocr_onnxruntime ^
     biedrona.py
 
 if exist python_dist rmdir /s /q python_dist
 xcopy dist_py\biedrona python_dist\ /E /I /Q
 echo   OK python_dist\ gotowy
-
-REM ---------- 2. Tesseract (only Polish) ----------
-echo.
-echo [2/4] Kopiowanie Tesseracta (jezyk polski)...
-
-set "TESS_SRC=C:\Program Files\Tesseract-OCR"
-if not exist "%TESS_SRC%\tesseract.exe" (
-    echo   BLAD: Tesseract nie znaleziony w "%TESS_SRC%"
-    echo   Pobierz i zainstaluj: https://github.com/UB-Mannheim/tesseract/wiki
-    echo   Upewnij sie, ze zainstalowales jezyk polski.
-    exit /b 1
-)
-
-if exist tesseract_dist rmdir /s /q tesseract_dist
-mkdir tesseract_dist\tessdata
-
-REM Copy tesseract binary and required DLLs
-copy "%TESS_SRC%\tesseract.exe" tesseract_dist\ >nul
-for %%f in ("%TESS_SRC%\*.dll") do copy "%%f" tesseract_dist\ >nul
-
-REM Copy Polish tessdata (+ eng as fallback)
-if exist "%TESS_SRC%\tessdata\pol.traineddata" (
-    copy "%TESS_SRC%\tessdata\pol.traineddata" tesseract_dist\tessdata\ >nul
-    if exist "%TESS_SRC%\tessdata\osd.traineddata" copy "%TESS_SRC%\tessdata\osd.traineddata" tesseract_dist\tessdata\ >nul
-    if exist "%TESS_SRC%\tessdata\eng.traineddata" copy "%TESS_SRC%\tessdata\eng.traineddata" tesseract_dist\tessdata\ >nul
-    echo   OK tessdata skopiowane
-) else (
-    echo   BLAD: pol.traineddata nie znaleziony!
-    echo   Uruchom ponownie instalator Tesseracta i zaznacz jezyk polski.
-    exit /b 1
-)
-
-echo   OK tesseract_dist\ gotowy
 
 REM ---------- 3. npm install ----------
 echo.

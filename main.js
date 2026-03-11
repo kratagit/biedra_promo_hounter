@@ -181,16 +181,6 @@ ipcMain.handle('start-search', async (_event, { keyword, discordEnabled }) => {
   // Tell the Python process where to store data (gazetki, cache)
   envVars.BIEDRONA_DATA_DIR = dataDir;
 
-  // Point to bundled Tesseract if available
-  if (app.isPackaged) {
-    const tessDir = path.join(process.resourcesPath, 'tesseract_dist');
-    if (fs.existsSync(tessDir)) {
-      const tessExt = process.platform === 'win32' ? '.exe' : '';
-      envVars.TESSERACT_CMD = path.join(tessDir, 'tesseract' + tessExt);
-      // TESSDATA_PREFIX must point to the parent of tessdata/ — Tesseract appends /tessdata/ itself
-      envVars.TESSDATA_PREFIX = tessDir;
-    }
-  }
 
   if (discordEnabled && config.discordWebhookUrl) {
     spawnArgs.push('--discord');
